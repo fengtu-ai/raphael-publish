@@ -240,7 +240,10 @@ export default function App() {
             setTimeout(() => setCopied(false), 2000);
         } catch (err) {
             console.error('Copy failed', err);
-            alert('复制格式失败，请检查浏览器剪贴板权限');
+            const message = err instanceof Error ? err.message : '';
+            alert(message
+                ? `复制到公众号失败：${message}`
+                : '复制格式失败，请检查浏览器剪贴板权限');
         } finally {
             setIsCopying(false);
         }

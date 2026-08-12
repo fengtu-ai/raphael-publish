@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type { editor as MonacoEditor } from 'monaco-editor';
 import { Wand2 } from 'lucide-react';
@@ -23,17 +23,19 @@ export default function EditorPanel({
 }: EditorPanelProps) {
     const scrollSyncEnabledRef = useRef(scrollSyncEnabled);
     const onEditorScrollRef = useRef(onEditorScroll);
-    const cleanupRef = useRef<(() => void) | null>(null);
+    const mountedEditorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+    const [editorMounted, setEditorMounted] = useState(false);
 
     useEffect(() => {
         scrollSyncEnabledRef.current = scrollSyncEnabled;
         onEditorScrollRef.current = onEditorScroll;
     }, [scrollSyncEnabled, onEditorScroll]);
 
-    useEffect(() => () => cleanupRef.current?.(), []);
+    useEffect(() => {
+        if (!editorMounted) return;
+        const editor = mountedEditorRef.current;
+        if (!editor) return;
 
-    const handleMount: OnMount = (editor) => {
-        editorRef.current = editor;
         const domNode = editor.getDomNode();
         const scrollNode = domNode?.querySelector<HTMLElement>('.monaco-scrollable-element');
         scrollNode?.setAttribute('data-testid', 'editor-input');
@@ -74,13 +76,22 @@ export default function EditorPanel({
             }
         });
 
-        cleanupRef.current?.();
-        cleanupRef.current = () => {
+        return () => {
             domNode?.removeEventListener('paste', handlePaste, true);
             scrollNode?.removeAttribute('data-testid');
             scrollDisposable.dispose();
-            if (editorRef.current === editor) editorRef.current = null;
         };
+    }, [editorMounted]);
+
+    useEffect(() => () => {
+        if (editorRef.current === mountedEditorRef.current) editorRef.current = null;
+        mountedEditorRef.current = null;
+    }, [editorRef]);
+
+    const handleMount: OnMount = (editor) => {
+        mountedEditorRef.current = editor;
+        editorRef.current = editor;
+        setEditorMounted(true);
     };
 
     return (
