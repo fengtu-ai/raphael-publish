@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import type { editor as MonacoEditor } from 'monaco-editor';
 import { PenLine, Eye } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 import { md, preprocessMarkdown, applyTheme } from './lib/markdown';
@@ -6,8 +7,8 @@ import { markElementIndexes } from './lib/markdownIndexer';
 import { makeWeChatCompatible, cleanInternalAttributes } from './lib/wechatCompat';
 import { THEMES } from './lib/themes';
 import { defaultContent } from './defaultContent';
-import { findImagePosition, selectTextAreaRange } from './lib/imageSelector';
-import { findElementPosition, type ElementLocation } from './lib/markdownLocator';
+import { findImagePosition } from './lib/imageSelector';
+import { findElementPosition, getElementLocations, type ElementLocation } from './lib/markdownLocator';
 import Header from './components/Header';
 import ThemeSelector from './components/ThemeSelector';
 import Toolbar from './components/Toolbar';
@@ -25,11 +26,12 @@ export default function App() {
     const [activePanel, setActivePanel] = useState<'editor' | 'preview'>('editor');
     const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
     const previewRef = useRef<HTMLDivElement>(null);
-    const editorScrollRef = useRef<HTMLTextAreaElement>(null);
+    const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
     const previewOuterScrollRef = useRef<HTMLDivElement>(null);
     const previewInnerScrollRef = useRef<HTMLDivElement>(null);
     const scrollSyncLockRef = useRef<'editor' | 'preview' | null>(null);
     const scrollLockReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const markdownLocations = useMemo(() => getElementLocations(markdownInput), [markdownInput]);
 
     useEffect(() => {
         // Enforce light mode as default, do not follow system preferences
@@ -87,24 +89,102 @@ export default function App() {
         return previewInnerScrollRef.current;
     };
 
+    const interpolateScrollPosition = (
+        position: number,
+        sourceAnchors: number[],
+        targetAnchors: number[]
+    ) => {
+        if (sourceAnchors.length < 2 || sourceAnchors.length !== targetAnchors.length) return 0;
+
+        let upperIndex = sourceAnchors.findIndex((anchor) => anchor >= position);
+        if (upperIndex < 0) upperIndex = sourceAnchors.length - 1;
+        if (upperIndex === 0) return targetAnchors[0];
+
+        const lowerIndex = upperIndex - 1;
+        const sourceSpan = sourceAnchors[upperIndex] - sourceAnchors[lowerIndex];
+        if (sourceSpan <= 0) return targetAnchors[upperIndex];
+
+        const progress = (position - sourceAnchors[lowerIndex]) / sourceSpan;
+        return targetAnchors[lowerIndex]
+            + progress * (targetAnchors[upperIndex] - targetAnchors[lowerIndex]);
+    };
+
+    const getScrollAnchors = (
+        editor: MonacoEditor.IStandaloneCodeEditor,
+        previewElement: HTMLElement
+    ) => {
+        const model = editor.getModel();
+        const editorMax = Math.max(editor.getScrollHeight() - editor.getLayoutInfo().height, 0);
+        const previewMax = Math.max(previewElement.scrollHeight - previewElement.clientHeight, 0);
+        const previewRect = previewElement.getBoundingClientRect();
+        const previewNodes = Array.from(previewElement.querySelectorAll<HTMLElement>('[data-md-index]'));
+        const previewNodeByIndex = new Map<number, HTMLElement>();
+
+        previewNodes.forEach((node) => {
+            const index = Number(node.dataset.mdIndex);
+            if (Number.isFinite(index) && !previewNodeByIndex.has(index)) {
+                previewNodeByIndex.set(index, node);
+            }
+        });
+
+        const editorAnchors = [0];
+        const previewAnchors = [0];
+        let previousEditorAnchor = 0;
+        let previousPreviewAnchor = 0;
+
+        if (model) {
+            markdownLocations.forEach((location, index) => {
+                const previewNode = previewNodeByIndex.get(index);
+                if (!previewNode) return;
+
+                const position = model.getPositionAt(location.start);
+                const editorAnchor = Math.min(Math.max(editor.getTopForLineNumber(position.lineNumber), 0), editorMax);
+                const previewAnchor = Math.min(Math.max(
+                    previewNode.getBoundingClientRect().top - previewRect.top + previewElement.scrollTop,
+                    0
+                ), previewMax);
+
+                if (editorAnchor <= previousEditorAnchor || previewAnchor <= previousPreviewAnchor) return;
+                editorAnchors.push(editorAnchor);
+                previewAnchors.push(previewAnchor);
+                previousEditorAnchor = editorAnchor;
+                previousPreviewAnchor = previewAnchor;
+            });
+        }
+
+        if (editorAnchors[editorAnchors.length - 1] !== editorMax
+            || previewAnchors[previewAnchors.length - 1] !== previewMax) {
+            editorAnchors.push(editorMax);
+            previewAnchors.push(previewMax);
+        }
+
+        return { editorAnchors, previewAnchors };
+    };
+
     const syncScrollPosition = (
-        sourceElement: HTMLElement,
-        targetElement: HTMLElement,
+        editor: MonacoEditor.IStandaloneCodeEditor,
+        previewElement: HTMLElement,
         sourcePanel: 'editor' | 'preview'
     ) => {
         if (!scrollSyncEnabled) return;
         if (scrollSyncLockRef.current && scrollSyncLockRef.current !== sourcePanel) return;
 
-        const sourceMaxScroll = sourceElement.scrollHeight - sourceElement.clientHeight;
-        const targetMaxScroll = targetElement.scrollHeight - targetElement.clientHeight;
-        if (sourceMaxScroll <= 0) {
-            targetElement.scrollTop = 0;
-            return;
-        }
-
-        const scrollRatio = sourceElement.scrollTop / sourceMaxScroll;
+        const { editorAnchors, previewAnchors } = getScrollAnchors(editor, previewElement);
         scrollSyncLockRef.current = sourcePanel;
-        targetElement.scrollTop = scrollRatio * Math.max(targetMaxScroll, 0);
+
+        if (sourcePanel === 'editor') {
+            previewElement.scrollTop = interpolateScrollPosition(
+                editor.getScrollTop(),
+                editorAnchors,
+                previewAnchors
+            );
+        } else {
+            editor.setScrollTop(interpolateScrollPosition(
+                previewElement.scrollTop,
+                previewAnchors,
+                editorAnchors
+            ));
+        }
 
         if (scrollLockReleaseTimeoutRef.current) {
             clearTimeout(scrollLockReleaseTimeoutRef.current);
@@ -119,26 +199,26 @@ export default function App() {
     };
 
     const handleEditorScroll = () => {
-        const editorElement = editorScrollRef.current;
+        const editor = editorRef.current;
         const previewElement = getActivePreviewScrollElement();
-        if (!editorElement || !previewElement) return;
-        syncScrollPosition(editorElement, previewElement, 'editor');
+        if (!editor || !previewElement) return;
+        syncScrollPosition(editor, previewElement, 'editor');
     };
 
     const handlePreviewOuterScroll = () => {
         if (previewDevice !== 'pc') return;
         const previewElement = previewOuterScrollRef.current;
-        const editorElement = editorScrollRef.current;
-        if (!previewElement || !editorElement) return;
-        syncScrollPosition(previewElement, editorElement, 'preview');
+        const editor = editorRef.current;
+        if (!previewElement || !editor) return;
+        syncScrollPosition(editor, previewElement, 'preview');
     };
 
     const handlePreviewInnerScroll = () => {
         if (previewDevice === 'pc') return;
         const previewElement = previewInnerScrollRef.current;
-        const editorElement = editorScrollRef.current;
-        if (!previewElement || !editorElement) return;
-        syncScrollPosition(previewElement, editorElement, 'preview');
+        const editor = editorRef.current;
+        if (!previewElement || !editor) return;
+        syncScrollPosition(editor, previewElement, 'preview');
     };
 
     const handleCopy = async () => {
@@ -208,7 +288,9 @@ export default function App() {
     };
 
     const handleImageClick = useCallback((info: { type: string; index: number; src?: string; alt?: string; content?: string }) => {
-        if (!editorScrollRef.current) return;
+        const editor = editorRef.current;
+        const model = editor?.getModel();
+        if (!editor || !model) return;
 
         let location: ElementLocation | null = null;
 
@@ -229,12 +311,22 @@ export default function App() {
         }
 
         if (location) {
-            // Always select the entire content - consistent user experience
-            selectTextAreaRange(editorScrollRef.current, location.start, location.end);
+            const start = model.getPositionAt(location.start);
+            const end = model.getPositionAt(location.end);
+            const range = {
+                startLineNumber: start.lineNumber,
+                startColumn: start.column,
+                endLineNumber: end.lineNumber,
+                endColumn: end.column,
+            };
 
-            // Switch to editor panel on mobile
+            editor.setSelection(range);
+            editor.revealRangeInCenter(range);
+            editor.focus();
+
             if (window.innerWidth < 768 && activePanel !== 'editor') {
                 setActivePanel('editor');
+                requestAnimationFrame(() => editor.layout());
             }
         }
     }, [markdownInput, activePanel]);
@@ -316,9 +408,10 @@ export default function App() {
                     <EditorPanel
                         markdownInput={markdownInput}
                         onInputChange={setMarkdownInput}
-                        editorScrollRef={editorScrollRef}
+                        editorRef={editorRef}
                         onEditorScroll={handleEditorScroll}
                         scrollSyncEnabled={scrollSyncEnabled}
+                        themeMode={themeMode}
                     />
                 </div>
                 <div className={`${activePanel === 'preview' ? 'flex' : 'hidden'} md:flex flex-col overflow-hidden`}>

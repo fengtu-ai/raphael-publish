@@ -73,6 +73,35 @@
         scrollbar-width: none;
     }
 
+    /* 编辑器保留清晰但不过分抢眼的滚动条，便于浏览超长 Base64 行。 */
+    .editor-scrollbar {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(134, 134, 139, 0.65) transparent;
+        scrollbar-gutter: stable;
+    }
+
+    .editor-scrollbar::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    .editor-scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(134, 134, 139, 0.55);
+        border: 2px solid transparent;
+        border-radius: 999px;
+        background-clip: padding-box;
+    }
+
+    .editor-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: rgba(99, 99, 102, 0.8);
+        border: 2px solid transparent;
+        background-clip: padding-box;
+    }
+
+    .editor-scrollbar::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+
     .preview-device-shell {
         @apply relative;
         box-sizing: border-box;

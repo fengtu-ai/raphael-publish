@@ -19,6 +19,39 @@ export interface ElementLocation {
 }
 
 /**
+ * Return all locatable Markdown blocks in the same global order used by the
+ * preview indexer. This is useful for scroll synchronization because it scans
+ * the source only once instead of locating every preview block separately.
+ */
+export function getElementLocations(text: string): ElementLocation[] {
+  const lines = text.split('\n');
+  const locations: ElementLocation[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    if (!lines[i].trim()) {
+      i++;
+      continue;
+    }
+
+    const element = parseElementAt(lines, i);
+    if (!element) {
+      i++;
+      continue;
+    }
+
+    locations.push({
+      start: element.start,
+      end: element.end,
+      type: element.type,
+    });
+    i = element.nextLineIndex;
+  }
+
+  return locations;
+}
+
+/**
  * Find the position of an element in markdown text using GLOBAL indexing
  * @param text - The markdown text
  * @param elementType - Type of element to find

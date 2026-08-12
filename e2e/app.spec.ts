@@ -4,6 +4,13 @@ function buildLongMarkdown() {
     return Array.from({ length: 120 }, (_, index) => `## Section ${index + 1}\n\n这是第 ${index + 1} 段内容，用来验证编辑器和预览区的滚动同步是否稳定。\n\n`).join('');
 }
 
+async function setEditorValue(page: import('@playwright/test').Page, value: string) {
+    const editor = page.locator('.monaco-editor').first();
+    await editor.click();
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.insertText(value);
+}
+
 async function waitForScrollableArea(page: import('@playwright/test').Page, testId: string) {
     await expect
         .poll(
@@ -96,8 +103,7 @@ test('keeps the copy button visible on mobile', async ({ page }) => {
 test('renders bold text with punctuation without leaking markdown markers', async ({ page }) => {
     await page.goto('/');
 
-    const editor = page.getByTestId('editor-input');
-    await editor.fill('2025年初，伦敦黄金市场的一个月拆借利率一度升至**5%**。');
+    await setEditorValue(page, '2025年初，伦敦黄金市场的一个月拆借利率一度升至**5%**。');
 
     const preview = page.getByTestId('preview-content');
     await expect(preview.locator('strong')).toHaveText('5%');
@@ -113,8 +119,7 @@ for (const device of [
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.goto('/');
 
-        const editor = page.getByTestId('editor-input');
-        await editor.fill(buildLongMarkdown());
+        await setEditorValue(page, buildLongMarkdown());
         await page.locator(`[data-testid="${device.testId}"]:visible`).click();
         await waitForScrollableArea(page, 'editor-input');
         await waitForScrollableArea(page, 'preview-inner-scroll');

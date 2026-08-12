@@ -116,46 +116,36 @@ export function insertAtSelection(
     }, 0);
 }
 
-export function handleSmartPaste(
-    e: React.ClipboardEvent<HTMLTextAreaElement>,
-    setMarkdownInput: (val: string) => void
-): void {
-    const clipboardData = e.clipboardData;
-    if (!clipboardData) return;
+export interface SmartPasteResult {
+    handled: boolean;
+    content?: Promise<string>;
+}
 
+/** Convert clipboard content without depending on a particular editor UI. */
+export function getSmartPasteResult(clipboardData: DataTransfer): SmartPasteResult {
     const htmlData = clipboardData.getData('text/html');
     const textData = clipboardData.getData('text/plain');
     const imageFiles = getClipboardImageFiles(clipboardData);
 
     if (imageFiles.length > 0) {
-        e.preventDefault();
-        const textarea = e.currentTarget;
-
-        Promise.all(imageFiles.map(fileToDataUrl))
-            .then((dataUrls) => {
-                const markdownImages = dataUrls
+        return {
+            handled: true,
+            content: Promise.all(imageFiles.map(fileToDataUrl)).then((dataUrls) =>
+                dataUrls
                     .filter(Boolean)
                     .map((src, index) => `![图片${dataUrls.length > 1 ? ` ${index + 1}` : ''}](${src})`)
-                    .join('\n\n');
-
-                if (!markdownImages) return;
-                insertAtSelection(textarea, markdownImages, setMarkdownInput);
-            })
-            .catch((err) => {
-                console.error('Clipboard image conversion failed:', err);
-                alert('粘贴图片失败，请重试');
-            });
-        return;
+                    .join('\n\n')
+            ),
+        };
     }
 
     if (textData && /^\[Image\s*#?\d*\]$/i.test(textData.trim())) {
-        e.preventDefault();
-        return;
+        return { handled: true, content: Promise.resolve('') };
     }
 
     const isFromIDE = isIDEFormattedHTML(htmlData, textData);
     if (isFromIDE && textData && isMarkdown(textData)) {
-        return;
+        return { handled: false };
     }
 
     if (htmlData && htmlData.trim() !== '') {
@@ -163,29 +153,38 @@ export function handleSmartPaste(
         const hasCodeTag = /<code[\s>]/.test(htmlData);
         const isMainlyCode = (hasPreTag || hasCodeTag) && !htmlData.includes('<p') && !htmlData.includes('<div');
 
-        if (isMainlyCode) {
-            return;
-        }
-
+        if (isMainlyCode) return { handled: false };
         if (htmlData.includes('file:///') || htmlData.includes('src="file:')) {
-            e.preventDefault();
-            return;
+            return { handled: true, content: Promise.resolve('') };
         }
 
-        e.preventDefault();
         try {
-            let markdown = turndownService.turndown(htmlData);
-            markdown = markdown.replace(/\n{3,}/g, '\n\n');
-
-            const textarea = e.currentTarget;
-            insertAtSelection(textarea, markdown, setMarkdownInput);
+            const markdown = turndownService.turndown(htmlData).replace(/\n{3,}/g, '\n\n');
+            return { handled: true, content: Promise.resolve(markdown) };
         } catch (err) {
             console.error('HTML to Markdown conversion failed:', err);
-            // Fallback to text
-            const textarea = e.currentTarget;
-            insertAtSelection(textarea, textData, setMarkdownInput);
+            return { handled: true, content: Promise.resolve(textData) };
         }
-    } else if (textData && isMarkdown(textData)) {
-        return;
     }
+
+    return { handled: false };
+}
+
+export function handleSmartPaste(
+    e: React.ClipboardEvent<HTMLTextAreaElement>,
+    setMarkdownInput: (val: string) => void
+): void {
+    const result = getSmartPasteResult(e.clipboardData);
+    if (!result.handled) return;
+
+    e.preventDefault();
+    const textarea = e.currentTarget;
+    result.content
+        ?.then((content) => {
+            if (content) insertAtSelection(textarea, content, setMarkdownInput);
+        })
+        .catch((err) => {
+            console.error('Clipboard image conversion failed:', err);
+            alert('粘贴图片失败，请重试');
+        });
 }

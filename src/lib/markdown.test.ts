@@ -30,14 +30,22 @@ describe('preprocessMarkdown', () => {
 });
 
 describe('applyTheme', () => {
-    it('groups consecutive standalone images into an image grid', () => {
-        const html = '<p><img src="a.png" /></p><p><img src="b.png" /></p>';
-        const themed = applyTheme(html, 'apple');
+    it('groups images separated by a single newline into an image grid', () => {
+        const themed = applyTheme(renderMarkdown('![](a.png)\n![](b.png)'), 'apple');
         const doc = new DOMParser().parseFromString(themed, 'text/html');
         const grid = doc.querySelector('.image-grid');
 
         expect(grid).not.toBeNull();
         expect(grid?.querySelectorAll('img')).toHaveLength(2);
+    });
+
+    it('keeps images separated by a blank line stacked vertically', () => {
+        const themed = applyTheme(renderMarkdown('![](a.png)\n\n![](b.png)'), 'apple');
+        const doc = new DOMParser().parseFromString(themed, 'text/html');
+
+        expect(doc.querySelector('.image-grid')).toBeNull();
+        expect(doc.querySelectorAll('p')).toHaveLength(2);
+        expect(doc.querySelectorAll('img')).toHaveLength(2);
     });
 
     it('keeps highlighted comments non-italic for apple', () => {

@@ -61,96 +61,9 @@ export function applyTheme(html: string, themeId: string) {
     };
 
 
-    const getSingleImageNode = (p: HTMLParagraphElement): HTMLElement | null => {
-        const children = Array.from(p.childNodes).filter(n =>
-            !(n.nodeType === Node.TEXT_NODE && !(n.textContent || '').trim()) &&
-            !(n.nodeType === Node.ELEMENT_NODE && (n as Element).tagName === 'BR')
-        );
-        if (children.length !== 1) return null;
-        const onlyChild = children[0];
-        if (onlyChild.nodeName === 'IMG') return onlyChild as HTMLElement;
-        if (onlyChild.nodeName === 'A' && onlyChild.childNodes.length === 1 && onlyChild.childNodes[0].nodeName === 'IMG') {
-            return onlyChild as HTMLElement;
-        }
-        return null;
-    };
-
-    // Check if a paragraph contains only images (for base64 images or multiple images in one paragraph)
-    const isImageOnlyParagraph = (p: HTMLParagraphElement): boolean => {
-        const children = Array.from(p.childNodes).filter(n =>
-            !(n.nodeType === Node.TEXT_NODE && !(n.textContent || '').trim()) &&
-            !(n.nodeType === Node.ELEMENT_NODE && (n as Element).tagName === 'BR')
-        );
-        if (children.length === 0) return false;
-        return children.every(n =>
-            n.nodeName === 'IMG' ||
-            (n.nodeName === 'A' && n.childNodes.length === 1 && n.childNodes[0].nodeName === 'IMG')
-        );
-    };
-
-    // Merge consecutive image-only paragraphs (same parent) into pair-wise side-by-side grids.
-    const paragraphSnapshot = Array.from(doc.querySelectorAll('p'));
-    const processed = new Set<HTMLParagraphElement>();
-
-    for (const paragraph of paragraphSnapshot) {
-        if (!paragraph.isConnected || processed.has(paragraph)) continue;
-        if (!getSingleImageNode(paragraph) && !isImageOnlyParagraph(paragraph)) continue;
-
-        const run: HTMLParagraphElement[] = [paragraph];
-        processed.add(paragraph);
-
-        let cursor = paragraph.nextElementSibling;
-        while (cursor && cursor.tagName === 'P') {
-            const p = cursor as HTMLParagraphElement;
-            if (!getSingleImageNode(p) && !isImageOnlyParagraph(p)) break;
-            run.push(p);
-            processed.add(p);
-            cursor = p.nextElementSibling;
-        }
-
-        if (run.length < 2) continue;
-
-        // Collect all images from the run
-        const allImages: HTMLElement[] = [];
-        run.forEach(p => {
-            if (getSingleImageNode(p)) {
-                const img = getSingleImageNode(p);
-                if (img) allImages.push(img);
-            } else if (isImageOnlyParagraph(p)) {
-                const images = p.querySelectorAll('img');
-                images.forEach(img => allImages.push(img as HTMLElement));
-            }
-        });
-
-        // Create grid paragraphs with 2 images each
-        const firstParagraph = run[0];
-        let lastInserted: HTMLElement | null = null;
-
-        for (let i = 0; i < allImages.length; i += 2) {
-            const gridParagraph = doc.createElement('p');
-            gridParagraph.classList.add('image-grid');
-            gridParagraph.setAttribute('style', 'display: flex; justify-content: center; gap: 8px; margin: 24px 0; align-items: flex-start;');
-
-            gridParagraph.appendChild(allImages[i]);
-            if (i + 1 < allImages.length) {
-                gridParagraph.appendChild(allImages[i + 1]);
-            }
-
-            if (i === 0) {
-                firstParagraph.before(gridParagraph);
-                lastInserted = gridParagraph;
-            } else if (lastInserted) {
-                lastInserted.after(gridParagraph);
-                lastInserted = gridParagraph;
-            }
-        }
-
-        // Remove original paragraphs
-        run.forEach(p => {
-            if (p.isConnected) p.remove();
-        });
-    }
-
+    // Only images inside the same Markdown paragraph form a grid:
+    // a single newline keeps images side by side, while a blank line creates
+    // separate paragraphs and therefore keeps the images stacked vertically.
     // Process image grids
     const paragraphs = doc.querySelectorAll('p');
     paragraphs.forEach(p => {
