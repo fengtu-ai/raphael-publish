@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Check, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { THEMES, THEME_GROUPS, type Theme } from '../lib/themes';
+import { THEMES, THEME_GROUPS, type Theme, type LayoutTheme } from '../lib/themes';
 
 interface ThemeSelectorProps {
     activeTheme: string;
@@ -16,11 +16,21 @@ function extractStyle(styleStr: string, prop: string): string | null {
 }
 
 /** Build a mini color swatch from theme styles */
-function ThemeSwatch({ styles }: { styles: Record<string, string> }) {
-    const bg = extractStyle(styles.container || '', 'background-color') || '#fff';
-    const textColor = extractStyle(styles.p || '', 'color') || '#333';
-    const h1Color = extractStyle(styles.h1 || '', 'color') || textColor;
-    const accentColor = extractStyle(styles.a || styles.blockquote || '', 'color') || h1Color;
+function ThemeSwatch({ theme }: { theme: Theme }) {
+    let bg: string, h1Color: string, accentColor: string, textColor: string;
+    if (theme.kind === 'layout') {
+        const c = (theme as LayoutTheme).layout.colors;
+        bg = c.paper;
+        textColor = c.text;
+        h1Color = c.ink;
+        accentColor = c.gold;
+    } else {
+        const styles = theme.styles;
+        bg = extractStyle(styles.container || '', 'background-color') || '#fff';
+        textColor = extractStyle(styles.p || '', 'color') || '#333';
+        h1Color = extractStyle(styles.h1 || '', 'color') || textColor;
+        accentColor = extractStyle(styles.a || styles.blockquote || '', 'color') || h1Color;
+    }
 
     return (
         <div className="flex gap-0.5 h-5 rounded-md overflow-hidden border border-[#00000015] dark:border-[#ffffff15]" style={{ width: '48px' }}>
@@ -129,29 +139,66 @@ export default function ThemeSelector({ activeTheme, onThemeChange }: ThemeSelec
                                                 <span className="text-[12px] font-semibold text-[#86868b] dark:text-[#a1a1a6] uppercase tracking-widest">{group.label}</span>
                                                 <span className="text-[11px] text-[#b0b0b5] dark:text-[#666]">{group.themes.length} 款</span>
                                             </div>
-                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
-                                                {group.themes.map(theme => (
-                                                    <button
-                                                        key={theme.id}
-                                                        onClick={() => {
-                                                            onThemeChange(theme.id);
-                                                            setIsThemeOpen(false);
-                                                        }}
-                                                        className={`relative flex flex-col items-start gap-1.5 p-3 rounded-xl text-left transition-all
-                                                            ${activeTheme === theme.id
-                                                                ? 'bg-[#0066cc]/8 dark:bg-[#0a84ff]/10 ring-2 ring-[#0066cc] dark:ring-[#0a84ff]'
-                                                                : 'bg-[#f5f5f7] dark:bg-[#2c2c2e] hover:bg-[#ebebed] dark:hover:bg-[#3a3a3c]'
-                                                            }`}
-                                                    >
-                                                        <div className="flex items-center justify-between w-full">
-                                                            <ThemeSwatch styles={theme.styles} />
-                                                            {activeTheme === theme.id && <Check size={14} className="text-[#0066cc] dark:text-[#0a84ff]" />}
+                                            {group.subgroups ? (
+                                                <div className="mt-2 space-y-3">
+                                                    {group.subgroups.map(sub => (
+                                                        <div key={sub.label}>
+                                                            <div className="flex items-center gap-1.5 mb-1.5 pl-1">
+                                                                <span className="w-1 h-1 rounded-full bg-[#86868b] dark:bg-[#a1a1a6]" />
+                                                                <span className="text-[11px] font-medium text-[#86868b] dark:text-[#a1a1a6]">{sub.label}</span>
+                                                                <span className="text-[10px] text-[#b0b0b5] dark:text-[#666]">{sub.themes.length} 款</span>
+                                                            </div>
+                                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                                                {sub.themes.map(theme => (
+                                                                    <button
+                                                                        key={theme.id}
+                                                                        onClick={() => {
+                                                                            onThemeChange(theme.id);
+                                                                            setIsThemeOpen(false);
+                                                                        }}
+                                                                        className={`relative flex flex-col items-start gap-1.5 p-3 rounded-xl text-left transition-all
+                                                                            ${activeTheme === theme.id
+                                                                                ? 'bg-[#0066cc]/8 dark:bg-[#0a84ff]/10 ring-2 ring-[#0066cc] dark:ring-[#0a84ff]'
+                                                                                : 'bg-[#f5f5f7] dark:bg-[#2c2c2e] hover:bg-[#ebebed] dark:hover:bg-[#3a3a3c]'
+                                                                            }`}
+                                                                    >
+                                                                        <div className="flex items-center justify-between w-full">
+                                                                            <ThemeSwatch theme={theme} />
+                                                                            {activeTheme === theme.id && <Check size={14} className="text-[#0066cc] dark:text-[#0a84ff]" />}
+                                                                        </div>
+                                                                        <span className="text-[13px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7] leading-tight">{theme.name}</span>
+                                                                        <span className="text-[11px] text-[#86868b] dark:text-[#a1a1a6] leading-snug line-clamp-2">{theme.description}</span>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
                                                         </div>
-                                                        <span className="text-[13px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7] leading-tight">{theme.name}</span>
-                                                        <span className="text-[11px] text-[#86868b] dark:text-[#a1a1a6] leading-snug line-clamp-2">{theme.description}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+                                                    {group.themes.map(theme => (
+                                                        <button
+                                                            key={theme.id}
+                                                            onClick={() => {
+                                                                onThemeChange(theme.id);
+                                                                setIsThemeOpen(false);
+                                                            }}
+                                                            className={`relative flex flex-col items-start gap-1.5 p-3 rounded-xl text-left transition-all
+                                                                ${activeTheme === theme.id
+                                                                    ? 'bg-[#0066cc]/8 dark:bg-[#0a84ff]/10 ring-2 ring-[#0066cc] dark:ring-[#0a84ff]'
+                                                                    : 'bg-[#f5f5f7] dark:bg-[#2c2c2e] hover:bg-[#ebebed] dark:hover:bg-[#3a3a3c]'
+                                                                }`}
+                                                        >
+                                                            <div className="flex items-center justify-between w-full">
+                                                                <ThemeSwatch theme={theme} />
+                                                                {activeTheme === theme.id && <Check size={14} className="text-[#0066cc] dark:text-[#0a84ff]" />}
+                                                            </div>
+                                                            <span className="text-[13px] font-semibold text-[#1d1d1f] dark:text-[#f5f5f7] leading-tight">{theme.name}</span>
+                                                            <span className="text-[11px] text-[#86868b] dark:text-[#a1a1a6] leading-snug line-clamp-2">{theme.description}</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>

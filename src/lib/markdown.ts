@@ -2,6 +2,29 @@ import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
 import { THEMES } from './themes';
+import { applyLayout } from './applyLayout';
+import { applyCardLayout } from './applyCardLayout';
+
+/** hljs 语法高亮 token → 内联样式（公众号会剥 class，必须内联）。
+ *  flat 与 layout 两条渲染路径共用，保证代码块复制到公众号高亮不丢。 */
+export const HLJS_LIGHT: Record<string, string> = {
+    'hljs-comment': 'color: #6a737d; font-style: normal;',
+    'hljs-quote': 'color: #6a737d; font-style: normal;',
+    'hljs-keyword': 'color: #d73a49; font-weight: 600;',
+    'hljs-selector-tag': 'color: #d73a49; font-weight: 600;',
+    'hljs-string': 'color: #032f62;',
+    'hljs-title': 'color: #6f42c1; font-weight: 600;',
+    'hljs-section': 'color: #6f42c1; font-weight: 600;',
+    'hljs-type': 'color: #005cc5; font-weight: 600;',
+    'hljs-number': 'color: #005cc5;',
+    'hljs-literal': 'color: #005cc5;',
+    'hljs-built_in': 'color: #005cc5;',
+    'hljs-variable': 'color: #e36209;',
+    'hljs-template-variable': 'color: #e36209;',
+    'hljs-tag': 'color: #22863a;',
+    'hljs-name': 'color: #22863a;',
+    'hljs-attr': 'color: #6f42c1;',
+};
 
 export const md = new MarkdownIt({
     html: true,
@@ -44,6 +67,11 @@ export function preprocessMarkdown(content: string) {
 
 export function applyTheme(html: string, themeId: string) {
     const theme = THEMES.find(t => t.id === themeId) || THEMES[0];
+    // 特殊排版主题走结构化重构渲染器（自己已盖 data-md-* 标记）
+    if (theme.kind === 'layout') {
+        if (theme.renderer === 'card') return applyCardLayout(html, themeId);
+        return applyLayout(html, themeId);
+    }
     const style = theme.styles;
 
     const parser = new DOMParser();
@@ -112,32 +140,13 @@ export function applyTheme(html: string, themeId: string) {
         ol.setAttribute('style', `${currentStyle}; list-style-type: decimal !important; list-style-position: outside;`);
     });
 
-    const hljsLight: Record<string, string> = {
-        'hljs-comment': 'color: #6a737d; font-style: normal;',
-        'hljs-quote': 'color: #6a737d; font-style: normal;',
-        'hljs-keyword': 'color: #d73a49; font-weight: 600;',
-        'hljs-selector-tag': 'color: #d73a49; font-weight: 600;',
-        'hljs-string': 'color: #032f62;',
-        'hljs-title': 'color: #6f42c1; font-weight: 600;',
-        'hljs-section': 'color: #6f42c1; font-weight: 600;',
-        'hljs-type': 'color: #005cc5; font-weight: 600;',
-        'hljs-number': 'color: #005cc5;',
-        'hljs-literal': 'color: #005cc5;',
-        'hljs-built_in': 'color: #005cc5;',
-        'hljs-variable': 'color: #e36209;',
-        'hljs-template-variable': 'color: #e36209;',
-        'hljs-tag': 'color: #22863a;',
-        'hljs-name': 'color: #22863a;',
-        'hljs-attr': 'color: #6f42c1;',
-    };
-
     const codeTokens = doc.querySelectorAll('.hljs span');
     codeTokens.forEach(span => {
         let inlineStyle = span.getAttribute('style') || '';
         if (inlineStyle && !inlineStyle.endsWith(';')) inlineStyle += '; ';
         span.classList.forEach(cls => {
-            if (hljsLight[cls]) {
-                inlineStyle += hljsLight[cls] + '; ';
+            if (HLJS_LIGHT[cls]) {
+                inlineStyle += HLJS_LIGHT[cls] + '; ';
             }
         });
         if (inlineStyle) {

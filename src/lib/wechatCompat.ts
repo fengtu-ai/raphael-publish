@@ -35,7 +35,10 @@ export async function makeWeChatCompatible(html: string, themeId: string): Promi
     const doc = parser.parseFromString(html, 'text/html');
 
     const theme = THEMES.find(t => t.id === themeId) || THEMES[0];
-    const containerStyle = theme.styles.container || '';
+    const containerStyle = theme.kind === 'layout'
+        ? (theme.layout.components.container || '')
+        : (theme.styles.container || '');
+    const isLayoutTheme = theme.kind === 'layout';
 
     // 0. Remove internal editor attributes (for click-to-locate feature)
     // These are only used in the editor and should not appear in the final HTML
@@ -54,12 +57,18 @@ export async function makeWeChatCompatible(html: string, themeId: string): Promi
 
     // Create new wrap section
     const section = doc.createElement('section');
-    section.setAttribute('style', containerStyle);
+    // 公众号正文区自带宽度限制；容器若再带 max-width 会被双重收窄。
+    // padding 统一改成 8px（保留少量内边距，避免内容贴边，又不过度收窄正文）。
+    const cleanContainerStyle = containerStyle
+        .replace(/max-width\s*:\s*[^;]+;?/gi, '')
+        .replace(/padding\s*:\s*[^;]+;?/gi, '')
+        + ' padding:12px;';
+    section.setAttribute('style', cleanContainerStyle);
 
     rootNodes.forEach(node => {
-        // If the original html came from applyTheme it already has a root div
-        // We strip it regardless of exact style string match to avoid double layers
-        if (node.tagName === 'DIV' && rootNodes.length === 1) {
+        // applyTheme(flat) 产出 <div style=container>，applyLayout 产出 <section style=container>。
+        // 两者都是单层容器根，unwrap 其子节点搬到新 section，避免双层容器叠加 padding/max-width。
+        if ((node.tagName === 'DIV' || node.tagName === 'SECTION') && rootNodes.length === 1) {
             Array.from(node.childNodes).forEach(child => section.appendChild(child));
         } else {
             section.appendChild(node);
@@ -67,7 +76,9 @@ export async function makeWeChatCompatible(html: string, themeId: string): Promi
     });
 
     // 2. WeChat ignores flex in many scenarios. Convert image flex wrappers to table layout.
-    const flexLikeNodes = section.querySelectorAll('div, p.image-grid');
+    // layout 主题的多图网格是 <section class="image-grid">，flat 是 <p class="image-grid">，
+    // 都要覆盖，否则多图复制到公众号会塌成一列。
+    const flexLikeNodes = section.querySelectorAll('div, p.image-grid, section.image-grid');
     flexLikeNodes.forEach(node => {
         // Keep code block internals untouched.
         if (node.closest('pre, code')) return;
@@ -127,7 +138,8 @@ export async function makeWeChatCompatible(html: string, themeId: string): Promi
         if (!code) return;
 
         const card = doc.createElement('table');
-        const preStyle = pre.getAttribute('style') || theme.styles.pre || '';
+        const preStyleFallback = isLayoutTheme ? '' : (theme.styles.pre || '');
+        const preStyle = pre.getAttribute('style') || preStyleFallback;
         const backgroundColor = preStyle.match(/background-color:\s*([^;!]+)/i)?.[1]?.trim() || '#f5f5f7';
         const margin = preStyle.match(/margin:\s*([^;]+)/i)?.[1]?.trim() || '24px 0';
         const borderRadius = preStyle.match(/border-radius:\s*([^;]+)/i)?.[1]?.trim() || '8px';
@@ -172,7 +184,8 @@ export async function makeWeChatCompatible(html: string, themeId: string): Promi
         const innerBody = doc.createElement('tbody');
         const innerRow = doc.createElement('tr');
         const codeSurface = doc.createElement('td');
-        const codeStyle = code.getAttribute('style') || theme.styles.code || '';
+        const codeStyleFallback = isLayoutTheme ? '' : (theme.styles.code || '');
+        const codeStyle = code.getAttribute('style') || codeStyleFallback;
         const codeBackgroundColor = codeStyle.match(/background-color:\s*([^;!]+)/i)?.[1]?.trim() || '#ffffff';
 
         innerTable.setAttribute('width', '100%');
@@ -260,11 +273,17 @@ export async function makeWeChatCompatible(html: string, themeId: string): Promi
         if (lineHeightMatch && !currentStyle.includes('line-height:')) {
             currentStyle += ` line-height: ${lineHeightMatch[1]};`;
         }
-        // Add font-size if not present (only for standard text nodes so we don't shrink headings)
-        if (sizeMatch && !currentStyle.includes('font-size:') && ['P', 'LI', 'BLOCKQUOTE', 'SPAN'].includes(node.tagName)) {
+        // Add font-size if not present (only for block text nodes so we don't shrink headings).
+        // 不给 <span> 注入 font-size —— layout 标题/编号等装饰块的文字用 <span leaf> 包裹
+        // 且无显式字号，靠继承父 <p> 的大字号；若给 span 注入容器正文字号，会覆盖继承的标题大字。
+        if (sizeMatch && !currentStyle.includes('font-size:') && ['P', 'LI', 'BLOCKQUOTE'].includes(node.tagName)) {
             currentStyle += ` font-size: ${sizeMatch[1]};`;
         }
-        if (colorMatch && !currentStyle.includes('color:')) {
+        // color 只分发给块级元素（p/li/h/blockquote）。
+        // 不给 <span> 注入容器 color —— layout 的白字装饰块（章节编号/TOC 首卡/底栏）
+        // 内的 <span leaf> 无显式 color，靠继承父 <p style="color:#fff"> 的白色；
+        // 若给 span 注入容器深色 color，会覆盖继承的白字 → 白字变黑。
+        if (colorMatch && !currentStyle.includes('color:') && ['P', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE'].includes(node.tagName)) {
             currentStyle += ` color: ${colorMatch[1]};`;
         }
 

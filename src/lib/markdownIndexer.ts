@@ -41,14 +41,25 @@ export function markElementIndexes(html: string): string {
   // Get all body children to traverse in document order
   const bodyChildren = Array.from(doc.body.children);
 
-  // Check if there's only one container div (common pattern from applyTheme)
+  // Check if there's only one container div/section (common pattern from applyTheme/applyLayout)
   let elementsToMark: Element[];
-  if (bodyChildren.length === 1 && bodyChildren[0].tagName.toLowerCase() === 'div') {
-    // Unwrap the container div and mark its children
-    const container = bodyChildren[0];
-    elementsToMark = Array.from(container.children);
+  if (bodyChildren.length === 1) {
+    const rootTag = bodyChildren[0].tagName.toLowerCase();
+    if (rootTag === 'div' || rootTag === 'section') {
+      // Unwrap the container and mark its children
+      const container = bodyChildren[0];
+      elementsToMark = Array.from(container.children);
+    } else {
+      elementsToMark = bodyChildren;
+    }
   } else {
     elementsToMark = bodyChildren;
+  }
+
+  // 特殊排版（applyLayout）已自行按 Markdown 顺序盖好 data-md-* 标记，
+  // 这里检测到已有标记就早返回，避免重复打标 / 顶层装饰 section 匹配落空。
+  if (elementsToMark.some(el => el.hasAttribute('data-md-index') || el.querySelector('[data-md-index]'))) {
+    return doc.body.innerHTML;
   }
 
   // Traverse all elements in document order and assign global indices
