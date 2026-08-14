@@ -1,5 +1,6 @@
 import { THEMES } from './themes';
 import { stripIndexMarkers } from './markdownIndexer';
+import { getCodeTheme } from './codeThemes';
 
 /**
  * Remove internal editor attributes from HTML
@@ -30,7 +31,7 @@ async function getBase64Image(imgUrl: string): Promise<string> {
     });
 }
 
-export async function makeWeChatCompatible(html: string, themeId: string): Promise<string> {
+export async function makeWeChatCompatible(html: string, themeId: string, codeThemeId?: string): Promise<string> {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
 
@@ -48,102 +49,117 @@ export async function makeWeChatCompatible(html: string, themeId: string): Promi
         el.removeAttribute('data-md-index');
     });
 
-    // Note: We manually remove attributes here before DOM manipulation
-    // The stripIndexMarkers() function is also available for HTML string operations
+    // 1. Unwrap outer theme container if present and move styles to a root section
+    const bodyChildren = Array.from(doc.body.children);
+    let section: HTMLElement;
 
-    // 1. WeChat prefers <section> as the root wrapper for overall styling
-    // If the root is a div, let's wrap or convert it to a section.
-    const rootNodes = Array.from(doc.body.children);
-
-    // Create new wrap section
-    const section = doc.createElement('section');
-    // 公众号正文区自带宽度限制；容器若再带 max-width 会被双重收窄。
-    // padding 统一改成 8px（保留少量内边距，避免内容贴边，又不过度收窄正文）。
-    const cleanContainerStyle = containerStyle
-        .replace(/max-width\s*:\s*[^;]+;?/gi, '')
-        .replace(/padding\s*:\s*[^;]+;?/gi, '')
-        + ' padding:12px;';
-    section.setAttribute('style', cleanContainerStyle);
-
-    rootNodes.forEach(node => {
-        // applyTheme(flat) 产出 <div style=container>，applyLayout 产出 <section style=container>。
-        // 两者都是单层容器根，unwrap 其子节点搬到新 section，避免双层容器叠加 padding/max-width。
-        if ((node.tagName === 'DIV' || node.tagName === 'SECTION') && rootNodes.length === 1) {
-            Array.from(node.childNodes).forEach(child => section.appendChild(child));
-        } else {
-            section.appendChild(node);
+    if (bodyChildren.length === 1 && (bodyChildren[0].tagName === 'DIV' || bodyChildren[0].tagName === 'SECTION')) {
+        section = doc.createElement('section');
+        const container = bodyChildren[0] as HTMLElement;
+        const explicitContainerStyle = isLayoutTheme
+            ? containerStyle
+            : (container.getAttribute('style') || containerStyle);
+        const normalizedContainerStyle = explicitContainerStyle
+            .replace(/max-width:\s*[^;]+;?/gi, '')
+            .replace(/padding:\s*[^;]+;?/gi, '')
+            .replace(/margin:\s*[^;]+;?/gi, '')
+            .trim();
+        section.setAttribute('style', `padding: 0 12px; margin: 0 auto; ${normalizedContainerStyle}`);
+        while (container.firstChild) {
+            section.appendChild(container.firstChild);
         }
-    });
+        doc.body.replaceChild(section, container);
+    } else {
+        section = doc.createElement('section');
+        const normalizedContainerStyle = containerStyle
+            .replace(/max-width:\s*[^;]+;?/gi, '')
+            .replace(/padding:\s*[^;]+;?/gi, '')
+            .replace(/margin:\s*[^;]+;?/gi, '')
+            .trim();
+        section.setAttribute('style', `padding: 0 12px; margin: 0 auto; ${normalizedContainerStyle}`);
+        while (doc.body.firstChild) {
+            section.appendChild(doc.body.firstChild);
+        }
+        doc.body.appendChild(section);
+    }
 
-    // 2. WeChat ignores flex in many scenarios. Convert image flex wrappers to table layout.
-    // layout 主题的多图网格是 <section class="image-grid">，flat 是 <p class="image-grid">，
-    // 都要覆盖，否则多图复制到公众号会塌成一列。
+    // 2. Multi-image Flex Row -> HTML Table
+    // WeChat's rich text parser completely strips CSS flexbox styles (display:flex,
+    // flex-direction, gap, justify-content, etc.). To reliably render side-by-side
+    // images in WeChat, convert any flex container whose direct children are images
+    // into a table layout with equal-width columns.
     const flexLikeNodes = section.querySelectorAll('div, p.image-grid, section.image-grid');
     flexLikeNodes.forEach(node => {
-        // Keep code block internals untouched.
-        if (node.closest('pre, code')) return;
-
         const style = node.getAttribute('style') || '';
-        const isFlexNode = style.includes('display: flex') || style.includes('display:flex');
-        const isImageGrid = node.classList.contains('image-grid');
-        if (!isFlexNode && !isImageGrid) return;
+        const isFlexClass = node.classList.contains('image-grid');
+        const isFlexNode = /display:\s*flex/i.test(style) || isFlexClass;
+
+        if (!isFlexNode) return;
 
         const flexChildren = Array.from(node.children);
-        if (flexChildren.every(child => child.tagName === 'IMG' || child.querySelector('img'))) {
-            const table = doc.createElement('table');
-            table.setAttribute('style', 'width: 100%; border-collapse: collapse; margin: 16px 0; border: none !important;');
-            const tbody = doc.createElement('tbody');
-            const tr = doc.createElement('tr');
-            tr.setAttribute('style', 'border: none !important; background: transparent !important;');
+        if (flexChildren.length > 1) {
+            const isAllImages = flexChildren.every(child =>
+                child.tagName === 'IMG' ||
+                (child.tagName === 'A' && child.children.length === 1 && child.children[0].tagName === 'IMG')
+            );
+            if (isAllImages) {
+                const table = doc.createElement('table');
+                table.setAttribute('width', '100%');
+                table.setAttribute('cellpadding', '0');
+                table.setAttribute('cellspacing', '0');
+                table.setAttribute('style', 'display: table; width: 100% !important; table-layout: fixed; border-collapse: separate; border-spacing: 8px 0; margin: 24px 0; border: 0;');
 
-            flexChildren.forEach(child => {
-                const td = doc.createElement('td');
-                td.setAttribute('style', 'padding: 0 4px; vertical-align: top; border: none !important; background: transparent !important;');
-                td.appendChild(child);
-                // Update child width to 100% since it's now bound by TD
-                const nestedImages = child.tagName === 'IMG'
-                    ? [child as HTMLImageElement]
-                    : Array.from(child.querySelectorAll('img'));
-                nestedImages.forEach(img => {
-                    const currentStyle = img.getAttribute('style') || '';
-                    img.setAttribute(
-                        'style',
-                        currentStyle.replace(/width:\s*[^;]+;?/g, '')
-                        + ' width: 100% !important; max-width: 100% !important; height: auto !important; display: block; margin: 0 auto !important;'
-                    );
-                    img.setAttribute('width', '100%');
+                const tbody = doc.createElement('tbody');
+                const tr = doc.createElement('tr');
+                const colWidth = Math.floor(100 / flexChildren.length);
+
+                flexChildren.forEach(child => {
+                    const td = doc.createElement('td');
+                    td.setAttribute('width', `${colWidth}%`);
+                    td.setAttribute('valign', 'top');
+                    td.setAttribute('style', `width: ${colWidth}%; padding: 0; margin: 0; vertical-align: top; border: 0;`);
+
+                    const imgs = child.tagName === 'IMG'
+                        ? [child as HTMLImageElement]
+                        : Array.from(child.querySelectorAll('img'));
+
+                    imgs.forEach(img => {
+                        const currentStyle = img.getAttribute('style') || '';
+                        img.setAttribute('style', `${currentStyle}; display: block; width: 100% !important; max-width: 100% !important; height: auto !important; margin: 0 !important;`);
+                    });
+
+                    td.appendChild(child);
+                    tr.appendChild(td);
                 });
-                if (child.tagName === 'A') {
-                    const currentStyle = child.getAttribute('style') || '';
-                    child.setAttribute('style', `${currentStyle}; display: block; width: 100%;`);
-                }
-                tr.appendChild(td);
-            });
 
-            tbody.appendChild(tr);
-            table.appendChild(tbody);
-            node.parentNode?.replaceChild(table, node);
-        } else if (isFlexNode) {
-            // Non-image flex items just get stripped of flex.
-            node.setAttribute('style', style.replace(/display:\s*flex;?/g, 'display: block;'));
+                tbody.appendChild(tr);
+                table.appendChild(tbody);
+                node.parentNode?.replaceChild(table, node);
+            } else if (isFlexNode) {
+                // Non-image flex items just get stripped of flex.
+                node.setAttribute('style', style.replace(/display:\s*flex;?/g, 'display: block;'));
+            }
         }
     });
 
     // 3. Replace pre/code blocks with table-based cards. WeChat strips nested
     // decorations from <pre>, while legacy table attributes and inline styles
     // are preserved more reliably.
+    const codeTheme = getCodeTheme(codeThemeId);
     const codeBlocks = Array.from(section.querySelectorAll('pre'));
     codeBlocks.forEach(pre => {
         const code = pre.querySelector('code');
         if (!code) return;
 
         const card = doc.createElement('table');
-        const preStyleFallback = isLayoutTheme ? '' : (theme.styles.pre || '');
-        const preStyle = pre.getAttribute('style') || preStyleFallback;
-        const backgroundColor = preStyle.match(/background-color:\s*([^;!]+)/i)?.[1]?.trim() || '#f5f5f7';
-        const margin = preStyle.match(/margin:\s*([^;]+)/i)?.[1]?.trim() || '24px 0';
-        const borderRadius = preStyle.match(/border-radius:\s*([^;]+)/i)?.[1]?.trim() || '8px';
-        const border = preStyle.match(/border(?:-(?!radius)[a-z-]+)?\s*:\s*([^;]+)/i)?.[1]?.trim();
+        const preStyle = pre.getAttribute('style') || '';
+        const backgroundColor = preStyle.match(/background-color:\s*([^;!]+)/i)?.[1]?.trim() || codeTheme.background;
+        const codeStyle = code.getAttribute('style') || '';
+        const codeBackgroundColor = codeStyle.match(/background-color:\s*([^;!]+)/i)?.[1]?.trim() || codeTheme.codeBackground;
+        const margin = preStyle.match(/margin:\s*([^;]+)/i)?.[1]?.trim() || '22px 0';
+        const borderRadius = preStyle.match(/border-radius:\s*([^;]+)/i)?.[1]?.trim() || codeTheme.borderRadius || '8px';
+        const border = preStyle.match(/border(?:-(?!radius)[a-z-]+)?\s*:\s*([^;]+)/i)?.[1]?.trim() || (codeTheme.borderColor ? `1px solid ${codeTheme.borderColor}` : undefined);
+        const borderLeft = preStyle.match(/border-left\s*:\s*([^;]+)/i)?.[1]?.trim() || (codeTheme.headerStyle === 'accent-line' && codeTheme.accentColor ? `4px solid ${codeTheme.accentColor}` : undefined);
 
         card.setAttribute('data-wechat-code-card', 'true');
         card.setAttribute('width', '100%');
@@ -152,8 +168,15 @@ export async function makeWeChatCompatible(html: string, themeId: string): Promi
         card.setAttribute('bgcolor', backgroundColor);
         card.setAttribute(
             'style',
-            `width: 100% !important; display: table; table-layout: fixed; box-sizing: border-box; border-collapse: separate; border-spacing: 0; margin: ${margin}; border: 0; background: ${backgroundColor} !important; background-color: ${backgroundColor} !important; border-radius: ${borderRadius}; overflow: hidden;`
+            `width: 100% !important; display: table; table-layout: fixed; box-sizing: border-box; border-collapse: separate; border-spacing: 0; margin: ${margin}; ${border ? `border: ${border};` : 'border: 0;'} ${borderLeft ? `border-left: ${borderLeft} !important;` : ''} background: ${backgroundColor} !important; background-color: ${backgroundColor} !important; border-radius: ${borderRadius}; overflow: hidden;`
         );
+
+        const isDualLayer = backgroundColor !== codeBackgroundColor;
+        const shellPadding = isDualLayer
+            ? '16px 18px 18px'
+            : (codeTheme.headerStyle === 'accent-line' ? '20px 22px 20px 24px' : '20px 24px');
+        const codePadding = isDualLayer ? '14px 16px' : '0';
+        const codeRadius = isDualLayer ? 'border-radius: 6px;' : '';
 
         const tbody = doc.createElement('tbody');
         const shellRow = doc.createElement('tr');
@@ -161,32 +184,54 @@ export async function makeWeChatCompatible(html: string, themeId: string): Promi
         shell.setAttribute('bgcolor', backgroundColor);
         shell.setAttribute(
             'style',
-            `padding: 20px; margin: 0; ${border ? `border: ${border};` : 'border: 0;'} background: ${backgroundColor} !important; background-color: ${backgroundColor} !important; border-radius: ${borderRadius}; vertical-align: top;`
+            `padding: ${shellPadding}; margin: 0; ${border ? `border: ${border};` : 'border: 0;'} ${borderLeft ? `border-left: ${borderLeft} !important;` : ''} background: ${backgroundColor} !important; background-color: ${backgroundColor} !important; border-radius: ${borderRadius}; vertical-align: top;`
         );
 
-        const toolbar = doc.createElement('p');
-        toolbar.setAttribute('style', 'display: block; padding: 0; margin: 0 0 12px 0 !important; border: 0; background: transparent; line-height: 16px !important; white-space: nowrap;');
-        [
-            ['#ff5f56', '●'],
-            ['#ffbd2e', '●'],
-            ['#27c93f', '●'],
-        ].forEach(([color, character]) => {
-            const dot = doc.createElement('span');
-            dot.setAttribute(
-                'style',
-                `display: inline; margin-right: 6px; color: ${color} !important; font-size: 18px; line-height: 16px; font-family: Arial, sans-serif;`
-            );
-            dot.textContent = `${character}\u00a0`;
-            toolbar.appendChild(dot);
-        });
+        if (codeTheme.headerStyle === 'mac-dots') {
+            const toolbar = doc.createElement('p');
+            toolbar.setAttribute('style', 'display: block; padding: 0; margin: 0 0 12px 0 !important; border: 0; background: transparent; line-height: 16px !important; white-space: nowrap;');
+            [
+                ['#ff5f56', '●'],
+                ['#ffbd2e', '●'],
+                ['#27c93f', '●'],
+            ].forEach(([color, character]) => {
+                const dot = doc.createElement('span');
+                dot.setAttribute(
+                    'style',
+                    `display: inline; margin-right: 6px; color: ${color} !important; font-size: 16px; line-height: 16px; font-family: Arial, sans-serif;`
+                );
+                dot.textContent = `${character}\u00a0`;
+                toolbar.appendChild(dot);
+            });
+            shell.appendChild(toolbar);
+        } else if (codeTheme.headerStyle === 'monochrome-dots') {
+            const toolbar = doc.createElement('p');
+            toolbar.setAttribute('style', 'display: block; padding: 0; margin: 0 0 12px 0 !important; border: 0; background: transparent; line-height: 14px !important; white-space: nowrap;');
+            [
+                ['#6272a4', '●'],
+                ['#6272a4', '●'],
+                ['#6272a4', '●'],
+            ].forEach(([color, character]) => {
+                const dot = doc.createElement('span');
+                dot.setAttribute(
+                    'style',
+                    `display: inline; margin-right: 6px; color: ${color} !important; opacity: 0.6; font-size: 13px; line-height: 14px; font-family: Arial, sans-serif;`
+                );
+                dot.textContent = `${character}\u00a0`;
+                toolbar.appendChild(dot);
+            });
+            shell.appendChild(toolbar);
+        } else if (codeTheme.headerStyle === 'terminal') {
+            const toolbar = doc.createElement('p');
+            toolbar.setAttribute('style', `display: block; padding: 0; margin: 0 0 10px 0 !important; border: 0; background: transparent; font-size: 11px; font-weight: 700; font-family: 'SF Mono', Consolas, monospace; color: ${codeTheme.accentColor || '#10b981'} !important; line-height: 14px !important; white-space: nowrap;`);
+            toolbar.textContent = '>_ terminal';
+            shell.appendChild(toolbar);
+        }
 
         const innerTable = doc.createElement('table');
         const innerBody = doc.createElement('tbody');
         const innerRow = doc.createElement('tr');
         const codeSurface = doc.createElement('td');
-        const codeStyleFallback = isLayoutTheme ? '' : (theme.styles.code || '');
-        const codeStyle = code.getAttribute('style') || codeStyleFallback;
-        const codeBackgroundColor = codeStyle.match(/background-color:\s*([^;!]+)/i)?.[1]?.trim() || '#ffffff';
 
         innerTable.setAttribute('width', '100%');
         innerTable.setAttribute('cellpadding', '0');
@@ -199,7 +244,7 @@ export async function makeWeChatCompatible(html: string, themeId: string): Promi
         codeSurface.setAttribute('bgcolor', codeBackgroundColor);
         codeSurface.setAttribute(
             'style',
-            `${codeStyle}; display: table-cell; box-sizing: border-box; width: 100%; min-height: 40px; padding: 12px 14px; margin: 0; border: 0; background: ${codeBackgroundColor} !important; background-color: ${codeBackgroundColor} !important; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; font-style: normal; text-align: left; vertical-align: top;`
+            `${codeStyle}; display: table-cell; box-sizing: border-box; width: 100%; min-height: 40px; padding: ${codePadding}; ${codeRadius} margin: 0; border: 0; background: ${codeBackgroundColor} !important; background-color: ${codeBackgroundColor} !important; color: ${codeTheme.textColor} !important; font-size: 13px !important; line-height: 1.75 !important; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; font-style: normal; text-align: left; vertical-align: top;`
         );
 
         // Explicit <br> and non-breaking spaces survive WeChat's whitespace
@@ -221,7 +266,6 @@ export async function makeWeChatCompatible(html: string, themeId: string): Promi
         innerRow.appendChild(codeSurface);
         innerBody.appendChild(innerRow);
         innerTable.appendChild(innerBody);
-        shell.appendChild(toolbar);
         shell.appendChild(innerTable);
         shellRow.appendChild(shell);
         tbody.appendChild(shellRow);

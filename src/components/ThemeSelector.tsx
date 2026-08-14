@@ -2,10 +2,13 @@ import { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Check, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { THEMES, THEME_GROUPS, type Theme, type LayoutTheme } from '../lib/themes';
+import CodeThemeSelector from './CodeThemeSelector';
 
 interface ThemeSelectorProps {
     activeTheme: string;
     onThemeChange: (themeId: string) => void;
+    activeCodeTheme?: string;
+    onCodeThemeChange?: (themeId: string) => void;
 }
 
 /** Extract a css property value from an inline style string */
@@ -42,7 +45,7 @@ function ThemeSwatch({ theme }: { theme: Theme }) {
     );
 }
 
-export default function ThemeSelector({ activeTheme, onThemeChange }: ThemeSelectorProps) {
+export default function ThemeSelector({ activeTheme, onThemeChange, activeCodeTheme, onCodeThemeChange }: ThemeSelectorProps) {
     const [isThemeOpen, setIsThemeOpen] = useState(false);
     const [showBottomFade, setShowBottomFade] = useState(true);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -61,7 +64,7 @@ export default function ThemeSelector({ activeTheme, onThemeChange }: ThemeSelec
     }, [isThemeOpen]);
 
     // Keep top quick-switch pills fixed for best discoverability.
-    const pillThemeIds = ['apple', 'claude', 'wechat', 'sspai'];
+    const pillThemeIds = ['apple', 'claude', 'wechat'];
     const pillThemes: Theme[] = pillThemeIds
         .map(id => THEMES.find(theme => theme.id === id))
         .filter((theme): theme is Theme => Boolean(theme));
@@ -213,13 +216,15 @@ export default function ThemeSelector({ activeTheme, onThemeChange }: ThemeSelec
                 </AnimatePresence>
             </div>
 
-            {/* Theme description next to selectors */}
-            <div className="hidden lg:flex items-center ml-4 pl-4 border-l border-[#00000015] dark:border-[#ffffff15]">
-                <p className="text-[13px] text-[#86868b] dark:text-[#a1a1a6] font-medium tracking-wide truncate max-w-[300px] xl:max-w-[450px]">
-                    <span className="text-[#1d1d1f] dark:text-[#f5f5f7] font-semibold mr-1">{THEMES.find(t => t.id === activeTheme)?.name}：</span>
-                    {THEMES.find(t => t.id === activeTheme)?.description}
-                </p>
-            </div>
+            {onCodeThemeChange && activeCodeTheme && (
+                <>
+                    <div className="h-4 w-[1px] bg-[#00000015] dark:bg-[#ffffff15] hidden sm:block shrink-0" />
+                    <CodeThemeSelector
+                        activeCodeTheme={activeCodeTheme}
+                        onCodeThemeChange={onCodeThemeChange}
+                    />
+                </>
+            )}
         </div>
     );
 }

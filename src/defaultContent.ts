@@ -1,6 +1,6 @@
-export const defaultContent = `# Raphael Publish - 公众号排版大师
+export const defaultContent = `# 公众号排版
 
-> 欢迎使用 Raphael Publish，一款专为**微信公众号**与**内容创作者**设计的现代 Markdown 排版引擎！
+> 欢迎使用**公众号排版**，一款专为**微信公众号**与**内容创作者**设计的现代 Markdown 排版引擎！
 
 ## 核心功能
 
@@ -18,13 +18,14 @@ export const defaultContent = `# Raphael Publish - 公众号排版大师
 ![](https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&h=400&fit=crop)
 ![](https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=600&h=400&fit=crop)
 
-### 3. 30 套高定样式
+### 3. 30+ 套高定样式
 
-告别同质化的白底模板，30 套精心打磨的视觉主题任你切换（下方仅展示部分代表风格）：
+告别同质化的白底模板，30+ 套精心打磨的视觉主题任你切换（包含松烟手札、卡册、极光三大特殊排版）：
 
 1. **极简与经典**：Mac 纯净白、微信公众号原生、Medium 博客风
 2. **深度阅读**：Claude 燕麦色、NYT 纽约时报、Retro 复古羊皮纸
 3. **极客与商务**：Stripe 硅谷风、飞书效率蓝、Linear 暗夜模式、Bloomberg 终端机
+4. **特殊排版**：松烟手札（东方书卷）、卡册（现代杂志）、极光（先锋科技）
 
 > 试试在顶部切换不同的「排版风格」，每一套都有独特的配色、字体和引用样式。
 
@@ -56,8 +57,8 @@ export const defaultContent = `# Raphael Publish - 公众号排版大师
 内置 MacOS 风格的代码高亮控制台，支持多种编程语言：
 
 \`\`\`javascript
-// Raphael Publish 排版引擎核心流程
-const raphael = {
+// 公众号排版引擎核心流程
+const publisher = {
   // 1. smart paste: 自动清洗富文本
   paste: (richText) => cleanToMarkdown(richText),
 

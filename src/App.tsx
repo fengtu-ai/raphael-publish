@@ -6,6 +6,7 @@ import { md, preprocessMarkdown, applyTheme } from './lib/markdown';
 import { markElementIndexes } from './lib/markdownIndexer';
 import { makeWeChatCompatible, cleanInternalAttributes } from './lib/wechatCompat';
 import { THEMES } from './lib/themes';
+import { DEFAULT_CODE_THEME_ID } from './lib/codeThemes';
 import { defaultContent } from './defaultContent';
 import { findImagePosition } from './lib/imageSelector';
 import { findElementPosition, getElementLocations, type ElementLocation } from './lib/markdownLocator';
@@ -20,6 +21,7 @@ export default function App() {
     const [markdownInput, setMarkdownInput] = useState<string>(defaultContent);
     const [renderedHtml, setRenderedHtml] = useState<string>('');
     const [activeTheme, setActiveTheme] = useState(THEMES[0].id);
+    const [activeCodeTheme, setActiveCodeTheme] = useState<string>(DEFAULT_CODE_THEME_ID);
     const [copied, setCopied] = useState(false);
     const [isCopying, setIsCopying] = useState(false);
     const [previewDevice, setPreviewDevice] = useState<'mobile' | 'tablet' | 'pc'>('pc');
@@ -49,14 +51,14 @@ export default function App() {
     useEffect(() => {
         // Core rendering: markdown → HTML → styled HTML
         const rawHtml = md.render(preprocessMarkdown(markdownInput));
-        const styledHtml = applyTheme(rawHtml, activeTheme);
+        const styledHtml = applyTheme(rawHtml, activeTheme, activeCodeTheme);
 
         // Enhancement layer: add index markers for click-to-locate
         // This is decoupled from core rendering logic
         const indexedHtml = markElementIndexes(styledHtml);
 
         setRenderedHtml(indexedHtml);
-    }, [markdownInput, activeTheme]);
+    }, [markdownInput, activeTheme, activeCodeTheme]);
 
     useEffect(() => {
         if (!scrollSyncEnabled) {
@@ -225,7 +227,7 @@ export default function App() {
         if (!previewRef.current) return;
         setIsCopying(true);
         try {
-            const finalHtmlForCopy = await makeWeChatCompatible(renderedHtml, activeTheme);
+            const finalHtmlForCopy = await makeWeChatCompatible(renderedHtml, activeTheme, activeCodeTheme);
 
             const blob = new Blob([finalHtmlForCopy], { type: 'text/html' });
             const textBlob = new Blob([previewRef.current.innerText], { type: 'text/plain' });
@@ -337,13 +339,13 @@ export default function App() {
     const deviceWidthClass = () => {
         if (previewDevice === 'mobile') return 'w-[520px] max-w-full';
         if (previewDevice === 'tablet') return 'w-[800px] max-w-full';
-        return 'w-[840px] xl:w-[1024px] max-w-[95%]';
+        return 'w-full max-w-[760px] xl:max-w-[820px]';
     };
 
     const gridLayoutClass = () => {
-        if (previewDevice === 'mobile') return 'md:grid-cols-[55fr_45fr]';
-        if (previewDevice === 'tablet') return 'md:grid-cols-[45fr_55fr]';
-        return 'md:grid-cols-[38.2fr_61.8fr]';
+        if (previewDevice === 'mobile') return 'md:grid-cols-[58fr_42fr]';
+        if (previewDevice === 'tablet') return 'md:grid-cols-[48fr_52fr]';
+        return 'md:grid-cols-[50fr_50fr]';
     };
 
     return (
@@ -373,7 +375,12 @@ export default function App() {
 
             {/* 排版设置 & 工具栏 (桌面端) */}
             <div className={`glass-toolbar hidden md:grid grid-cols-1 ${gridLayoutClass()} px-0 z-[90] transition-all duration-500`}>
-                <ThemeSelector activeTheme={activeTheme} onThemeChange={setActiveTheme} />
+                <ThemeSelector
+                    activeTheme={activeTheme}
+                    onThemeChange={setActiveTheme}
+                    activeCodeTheme={activeCodeTheme}
+                    onCodeThemeChange={setActiveCodeTheme}
+                />
                 <Toolbar
                     previewDevice={previewDevice}
                     onDeviceChange={setPreviewDevice}
@@ -390,7 +397,12 @@ export default function App() {
             {/* 移动端工具栏：分两行避免按钮被主题栏挤出可视区 */}
             <div className="md:hidden glass-toolbar z-[90]">
                 <div className="overflow-x-auto no-scrollbar border-b border-[#00000010] dark:border-[#ffffff10]">
-                    <ThemeSelector activeTheme={activeTheme} onThemeChange={setActiveTheme} />
+                    <ThemeSelector
+                        activeTheme={activeTheme}
+                        onThemeChange={setActiveTheme}
+                        activeCodeTheme={activeCodeTheme}
+                        onCodeThemeChange={setActiveCodeTheme}
+                    />
                 </div>
                 <Toolbar
                     previewDevice={previewDevice}

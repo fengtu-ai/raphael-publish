@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type { editor as MonacoEditor } from 'monaco-editor';
-import { Wand2 } from 'lucide-react';
+import { Wand2, Trash2 } from 'lucide-react';
 import { getSmartPasteResult } from '../lib/htmlToMarkdown';
 
 interface EditorPanelProps {
@@ -150,6 +150,25 @@ export default function EditorPanel({
                 <div className="flex items-center gap-3 text-[12px] text-[#86868b] dark:text-[#a1a1a6]">
                     <span className="hidden lg:inline">Ctrl/Cmd + F 搜索</span>
                     <span className="font-mono">{markdownInput.length} 字</span>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (!markdownInput) return;
+                            if (window.confirm('确定要清空编辑器内容吗？')) {
+                                onInputChange('');
+                                if (mountedEditorRef.current) {
+                                    mountedEditorRef.current.setValue('');
+                                    mountedEditorRef.current.focus();
+                                }
+                            }
+                        }}
+                        disabled={!markdownInput}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[12px] font-medium text-[#86868b] dark:text-[#a1a1a6] hover:text-[#ff3b30] dark:hover:text-[#ff453a] hover:bg-[#ff3b3012] dark:hover:bg-[#ff453a18] transition-all disabled:opacity-30 disabled:hover:text-inherit disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed border border-transparent hover:border-[#ff3b3025] dark:hover:border-[#ff453a30]"
+                        title="清空编辑器内容"
+                    >
+                        <Trash2 size={12.5} />
+                        <span>清空</span>
+                    </button>
                 </div>
             </div>
         </div>

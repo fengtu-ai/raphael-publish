@@ -102,6 +102,53 @@
         background: transparent;
     }
 
+    /* 代码块极简精致滚动条（解决 Windows 原生粗白滚动条问题） */
+    pre,
+    .hljs {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(120, 120, 128, 0.25) transparent;
+    }
+
+    pre::-webkit-scrollbar,
+    .hljs::-webkit-scrollbar {
+        height: 5px;
+        width: 5px;
+    }
+
+    pre::-webkit-scrollbar-track,
+    .hljs::-webkit-scrollbar-track {
+        background: transparent;
+        border-radius: 9999px;
+        margin: 0 8px;
+    }
+
+    pre::-webkit-scrollbar-thumb,
+    .hljs::-webkit-scrollbar-thumb {
+        background: rgba(120, 120, 128, 0.25);
+        border-radius: 9999px;
+        transition: background 0.2s ease;
+    }
+
+    pre::-webkit-scrollbar-thumb:hover,
+    .hljs::-webkit-scrollbar-thumb:hover {
+        background: rgba(120, 120, 128, 0.5);
+    }
+
+    pre::-webkit-scrollbar-corner,
+    .hljs::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+
+    .dark pre::-webkit-scrollbar-thumb,
+    .dark .hljs::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .dark pre::-webkit-scrollbar-thumb:hover,
+    .dark .hljs::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.4);
+    }
+
     .preview-device-shell {
         @apply relative;
         box-sizing: border-box;

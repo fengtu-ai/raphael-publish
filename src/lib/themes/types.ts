@@ -164,8 +164,8 @@ export interface LayoutTheme {
   name: string;
   description: string;
   layout: LayoutConfig;
-  /** 渲染器判别：缺省 'songyan' 走 applyLayout；'card' 走 applyCardLayout */
-  renderer?: 'songyan' | 'card';
+  /** 渲染器判别：缺省 'songyan' 走 applyLayout；'card' 走 applyCardLayout；'editorial' 走 applyEditorialLayout */
+  renderer?: 'songyan' | 'card' | 'editorial';
 }
 
 export type Theme = FlatTheme | LayoutTheme;

@@ -4,27 +4,11 @@ import 'highlight.js/styles/github.css';
 import { THEMES } from './themes';
 import { applyLayout } from './applyLayout';
 import { applyCardLayout } from './applyCardLayout';
+import { applyEditorialLayout } from './applyEditorialLayout';
+import { applyCodeThemeToDom, getCodeTheme } from './codeThemes';
 
-/** hljs 语法高亮 token → 内联样式（公众号会剥 class，必须内联）。
- *  flat 与 layout 两条渲染路径共用，保证代码块复制到公众号高亮不丢。 */
-export const HLJS_LIGHT: Record<string, string> = {
-    'hljs-comment': 'color: #6a737d; font-style: normal;',
-    'hljs-quote': 'color: #6a737d; font-style: normal;',
-    'hljs-keyword': 'color: #d73a49; font-weight: 600;',
-    'hljs-selector-tag': 'color: #d73a49; font-weight: 600;',
-    'hljs-string': 'color: #032f62;',
-    'hljs-title': 'color: #6f42c1; font-weight: 600;',
-    'hljs-section': 'color: #6f42c1; font-weight: 600;',
-    'hljs-type': 'color: #005cc5; font-weight: 600;',
-    'hljs-number': 'color: #005cc5;',
-    'hljs-literal': 'color: #005cc5;',
-    'hljs-built_in': 'color: #005cc5;',
-    'hljs-variable': 'color: #e36209;',
-    'hljs-template-variable': 'color: #e36209;',
-    'hljs-tag': 'color: #22863a;',
-    'hljs-name': 'color: #22863a;',
-    'hljs-attr': 'color: #6f42c1;',
-};
+/** 兼容旧引用：默认浅色高亮映射表 */
+export const HLJS_LIGHT: Record<string, string> = getCodeTheme('clean-light').tokenColors;
 
 export const md = new MarkdownIt({
     html: true,
@@ -41,10 +25,7 @@ export const md = new MarkdownIt({
         } else {
             codeContent = md.utils.escapeHtml(str);
         }
-
-        const dots = '<div style="margin-bottom: 12px; white-space: nowrap;"><span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #ff5f56; margin-right: 6px;"></span><span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #ffbd2e; margin-right: 6px;"></span><span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #27c93f;"></span></div>';
-
-        return `<pre>${dots}<code class="hljs">${codeContent}</code></pre>`;
+        return `<pre><code class="hljs">${codeContent}</code></pre>`;
     }
 });
 
@@ -65,12 +46,13 @@ export function preprocessMarkdown(content: string) {
     return content;
 }
 
-export function applyTheme(html: string, themeId: string) {
+export function applyTheme(html: string, themeId: string, codeThemeId?: string) {
     const theme = THEMES.find(t => t.id === themeId) || THEMES[0];
     // 特殊排版主题走结构化重构渲染器（自己已盖 data-md-* 标记）
     if (theme.kind === 'layout') {
-        if (theme.renderer === 'card') return applyCardLayout(html, themeId);
-        return applyLayout(html, themeId);
+        if (theme.renderer === 'card') return applyCardLayout(html, themeId, codeThemeId);
+        if (theme.renderer === 'editorial') return applyEditorialLayout(html, themeId, codeThemeId);
+        return applyLayout(html, themeId, codeThemeId);
     }
     const style = theme.styles;
 
@@ -140,35 +122,7 @@ export function applyTheme(html: string, themeId: string) {
         ol.setAttribute('style', `${currentStyle}; list-style-type: decimal !important; list-style-position: outside;`);
     });
 
-    const codeTokens = doc.querySelectorAll('.hljs span');
-    codeTokens.forEach(span => {
-        let inlineStyle = span.getAttribute('style') || '';
-        if (inlineStyle && !inlineStyle.endsWith(';')) inlineStyle += '; ';
-        span.classList.forEach(cls => {
-            if (HLJS_LIGHT[cls]) {
-                inlineStyle += HLJS_LIGHT[cls] + '; ';
-            }
-        });
-        if (inlineStyle) {
-            span.setAttribute('style', inlineStyle);
-        }
-    });
-
-    doc.querySelectorAll('pre').forEach(pre => {
-        const currentStyle = pre.getAttribute('style') || '';
-        pre.setAttribute(
-            'style',
-            `${currentStyle}; font-variant-ligatures: none; tab-size: 2;`
-        );
-    });
-
-    doc.querySelectorAll('pre code, pre .hljs, .hljs').forEach(codeNode => {
-        const currentStyle = codeNode.getAttribute('style') || '';
-        codeNode.setAttribute(
-            'style',
-            `${currentStyle}; display: block; font-size: inherit !important; line-height: inherit !important; font-style: normal !important; white-space: pre; word-break: normal; overflow-wrap: normal;`
-        );
-    });
+    applyCodeThemeToDom(doc.body, codeThemeId);
 
     const headings = doc.querySelectorAll('h1, h2, h3, h4, h5, h6');
     headings.forEach(heading => {
