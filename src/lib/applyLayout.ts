@@ -15,7 +15,6 @@ import { applyCodeThemeToDom } from './codeThemes';
 import {
   makeLeafText,
   makeStyledLeaf,
-  leafBr,
   classifyRoleItems,
   buildCommonImage,
   buildCommonTable,
@@ -128,43 +127,14 @@ export function applyLayout(html: string, themeId: string, codeThemeId?: string)
 
 // ============ 松烟专属组件 builders ============
 
-/** 封面卡：顶部栏（红印+渐变线）+ 大标题 + 副标 + 底部墨底色带 */
+/** 封面：无卡片背景、无装饰，正常显示标题 */
 function buildCover(doc: Document, c: LayoutConfig, h1: Element, mark: (e: Element, t: ElementType) => void): Element {
   const { colors, components } = c;
-  const card = doc.createElement('section');
-  card.setAttribute('style', components.cover);
-
-  const inner = doc.createElement('section');
-  inner.setAttribute('style', 'padding:32px 24px 28px;');
-
-  const top = doc.createElement('section');
-  top.setAttribute('style', components.coverTop);
-
-  const seal = doc.createElement('span');
-  seal.setAttribute('style', `display:inline-block;background-color:${colors.alert};background:linear-gradient(135deg,${colors.alert},#7a2010);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;letter-spacing:1px;`);
-  seal.appendChild(makeLeafText(doc, '手札'));
-  top.appendChild(seal);
-
-  const line = doc.createElement('span');
-  line.setAttribute('style', components.gradientLine);
-  line.appendChild(leafBr(doc));
-  top.appendChild(line);
-  inner.appendChild(top);
-
   const title = doc.createElement('p');
   title.setAttribute('style', components.coverTitle);
-  title.appendChild(makeStyledLeaf(doc, (h1.textContent || '').trim() || '无题', `font-size:26px;font-weight:900;color:${colors.text};line-height:1.3;letter-spacing:-0.5px;`));
+  title.appendChild(makeStyledLeaf(doc, (h1.textContent || '').trim() || '无题', `font-size:26px;font-weight:900;color:${colors.text};line-height:1.4;`));
   mark(title, 'heading');
-  inner.appendChild(title);
-
-  card.appendChild(inner);
-
-  const footer = doc.createElement('section');
-  footer.setAttribute('style', components.coverFooter);
-  footer.appendChild(makeLeafText(doc, '✦ 卷首 · 阅毕约需三五分钟'));
-  card.appendChild(footer);
-
-  return card;
+  return title;
 }
 
 /** 目录导读卡 */
@@ -173,18 +143,36 @@ function buildToc(doc: Document, c: LayoutConfig, chapterItems: RoleItem[]): Ele
   const wrap = doc.createElement('section');
   wrap.setAttribute('style', components.toc);
 
-  const titleBar = doc.createElement('section');
+  // 标题栏用表格布局：垂直居中不依赖 flex（微信会剥离 flex 样式）
+  const titleBar = doc.createElement('table');
+  titleBar.setAttribute('width', '100%');
+  titleBar.setAttribute('cellpadding', '0');
+  titleBar.setAttribute('cellspacing', '0');
   titleBar.setAttribute('style', components.tocTitle);
+
+  const titleTr = doc.createElement('tr');
+
+  const titleTd = doc.createElement('td');
+  titleTd.setAttribute('valign', 'middle');
+  titleTd.setAttribute('style', 'padding:0;border:0;vertical-align:middle;text-align:left;');
 
   const titleP = doc.createElement('p');
   titleP.setAttribute('style', `margin:0;font-size:11px;font-weight:700;color:${colors.textSoft};letter-spacing:2px;`);
   titleP.appendChild(makeLeafText(doc, '目 录 导 引'));
-  titleBar.appendChild(titleP);
+  titleTd.appendChild(titleP);
+
+  const hintTd = doc.createElement('td');
+  hintTd.setAttribute('valign', 'middle');
+  hintTd.setAttribute('style', 'padding:0;border:0;vertical-align:middle;text-align:right;');
 
   const hintP = doc.createElement('p');
   hintP.setAttribute('style', `margin:0;font-size:10px;color:${colors.textSoft};opacity:0.75;`);
   hintP.appendChild(makeLeafText(doc, '左右滑动 浏览章节 ⇢'));
-  titleBar.appendChild(hintP);
+  hintTd.appendChild(hintP);
+
+  titleTr.appendChild(titleTd);
+  titleTr.appendChild(hintTd);
+  titleBar.appendChild(titleTr);
   wrap.appendChild(titleBar);
 
   const scroll = doc.createElement('section');
@@ -198,16 +186,31 @@ function buildToc(doc: Document, c: LayoutConfig, chapterItems: RoleItem[]): Ele
     const card = doc.createElement('section');
     card.setAttribute('style', isFirst ? components.tocCard : components.tocCardDim);
 
+    // 卡片内容用 table-cell 垂直居中（88px 卡 - 上下 20px padding = 68px 内容高）
+    const cardInner = doc.createElement('table');
+    cardInner.setAttribute('width', '100%');
+    cardInner.setAttribute('cellpadding', '0');
+    cardInner.setAttribute('cellspacing', '0');
+    cardInner.setAttribute('style', 'width:100%;height:68px;border:0;border-collapse:collapse;table-layout:fixed;');
+    const cardTr = doc.createElement('tr');
+    const cardTd = doc.createElement('td');
+    cardTd.setAttribute('valign', 'middle');
+    cardTd.setAttribute('style', 'padding:0;border:0;vertical-align:middle;text-align:center;');
+
     const numP = doc.createElement('p');
     numP.setAttribute('style', `margin:0 0 4px;font-size:16px;font-weight:900;color:${isFirst ? '#fff' : colors.ink};line-height:1;`);
     numP.appendChild(makeStyledLeaf(doc, conclusion ? '∞' : String(idx + 1).padStart(2, '0'), `font-size:16px;font-weight:900;color:${isFirst ? '#fff' : colors.ink};line-height:1;`));
-    card.appendChild(numP);
+    cardTd.appendChild(numP);
 
     const titleText = (it.el.textContent || '').trim();
     const titleP2 = doc.createElement('p');
     titleP2.setAttribute('style', `margin:0;font-size:11px;font-weight:700;color:${isFirst ? 'rgba(255,255,255,0.92)' : colors.text};line-height:1.35;word-break:break-all;`);
     titleP2.appendChild(makeStyledLeaf(doc, titleText, `font-size:11px;font-weight:700;color:${isFirst ? 'rgba(255,255,255,0.92)' : colors.text};line-height:1.35;`));
-    card.appendChild(titleP2);
+    cardTd.appendChild(titleP2);
+
+    cardTr.appendChild(cardTd);
+    cardInner.appendChild(cardTr);
+    card.appendChild(cardInner);
 
     scroll.appendChild(card);
   });
@@ -309,13 +312,16 @@ function buildQuoteBox(doc: Document, c: LayoutConfig, bq: Element, mark: (e: El
   return wrap;
 }
 
-/** 无序列表：胶囊式小项 */
+/** 无序列表：胶囊式小项（块级行容器包裹，每项独占一行） */
 function buildPillList(doc: Document, c: LayoutConfig, ul: Element, mark: (e: Element, t: ElementType) => void): Element {
   const { colors, components } = c;
   const wrap = doc.createElement('section');
   wrap.setAttribute('style', 'margin:14px 0 20px;');
 
   ul.querySelectorAll(':scope > li').forEach(li => {
+    const row = doc.createElement('section');
+    row.setAttribute('style', 'margin:0 0 8px;');
+
     const span = doc.createElement('span');
     span.setAttribute('style', components.pillItem);
     const dot = doc.createElement('span');
@@ -328,35 +334,53 @@ function buildPillList(doc: Document, c: LayoutConfig, ul: Element, mark: (e: El
     mark(txt, 'list');
     span.appendChild(txt);
 
-    wrap.appendChild(span);
+    row.appendChild(span);
+    wrap.appendChild(row);
   });
 
   return wrap;
 }
 
-/** 有序列表：圆圈数字序号行 */
+/** 有序列表：圆圈数字序号行（表格布局，兼容微信：微信会剥离 flex 导致换行错乱） */
 function buildOrderedList(doc: Document, c: LayoutConfig, ol: Element, mark: (e: Element, t: ElementType) => void): Element {
-  const { colors, components } = c;
+  const { colors } = c;
   const wrap = doc.createElement('section');
   wrap.setAttribute('style', 'margin:14px 0 20px;');
 
   let n = 0;
   ol.querySelectorAll(':scope > li').forEach(li => {
     n++;
-    const row = doc.createElement('section');
-    row.setAttribute('style', components.orderedItem);
+    const row = doc.createElement('table');
+    row.setAttribute('width', '100%');
+    row.setAttribute('cellpadding', '0');
+    row.setAttribute('cellspacing', '0');
+    row.setAttribute('style', 'width:100%;table-layout:fixed;border-collapse:collapse;border:0;margin:0 0 14px;');
+
+    const tr = doc.createElement('tr');
+
+    const numTd = doc.createElement('td');
+    numTd.setAttribute('width', '22');
+    numTd.setAttribute('valign', 'top');
+    numTd.setAttribute('style', 'width:22px;padding:3px 0 0 0;vertical-align:top;border:0;');
 
     const num = doc.createElement('span');
-    num.setAttribute('style', components.orderedNum);
-    num.appendChild(makeStyledLeaf(doc, String(n), `color:#fff;font-size:11px;font-weight:700;`));
-    row.appendChild(num);
+    num.setAttribute('style', `display:inline-block;vertical-align:top;width:22px;height:22px;line-height:22px;text-align:center;border-radius:50%;background:${colors.ink};color:#fff;font-size:11px;font-weight:700;`);
+    num.appendChild(makeStyledLeaf(doc, String(n), `color:#fff !important;font-size:11px !important;font-weight:700 !important;`));
+    numTd.appendChild(num);
+
+    const txtTd = doc.createElement('td');
+    txtTd.setAttribute('valign', 'top');
+    txtTd.setAttribute('style', 'padding:0 0 0 12px;vertical-align:top;border:0;word-break:break-word;overflow-wrap:break-word;');
 
     const txt = doc.createElement('p');
-    txt.setAttribute('style', `margin:0;line-height:1.75;font-size:14px;flex:1;color:${colors.text};`);
+    txt.setAttribute('style', `margin:0;line-height:1.75;font-size:14px;color:${colors.text};`);
     Array.from(li.childNodes).forEach(nd => txt.appendChild(nd.cloneNode(true)));
     mark(txt, 'list');
-    row.appendChild(txt);
+    txtTd.appendChild(txt);
 
+    tr.appendChild(numTd);
+    tr.appendChild(txtTd);
+    row.appendChild(tr);
     wrap.appendChild(row);
   });
 

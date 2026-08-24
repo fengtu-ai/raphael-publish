@@ -363,7 +363,9 @@ export async function makeWeChatCompatible(html: string, themeId: string, codeTh
         table.setAttribute('cellpadding', '0');
         const currentStyle = table.getAttribute('style') || '';
         const isCodeTable = Boolean(table.closest('[data-wechat-code-card]'));
-        const collapseStyle = isCodeTable
+        // 圆角卡片表（列表卡/代码卡）必须保持 separate —— collapse 会让 border-radius 圆角失效
+        const keepsSeparate = isCodeTable || /border-radius/i.test(currentStyle);
+        const collapseStyle = keepsSeparate
             ? 'border-collapse: separate; border-spacing: 0;'
             : 'border-collapse: collapse;';
         table.setAttribute('style', `${currentStyle}; width: 100% !important; ${collapseStyle} table-layout: fixed;`);

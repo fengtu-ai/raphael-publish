@@ -328,34 +328,53 @@ function buildQuote(doc: Document, c: LayoutConfig, bq: Element, mark: (e: Eleme
   return wrap;
 }
 
-/** 7. 结构化胶囊列表 UL */
+/** 7. 结构化胶囊列表 UL（表格行布局，兼容微信：微信会剥离 flex 导致换行错乱与内容溢出） */
 function buildPillList(doc: Document, c: LayoutConfig, ul: Element, mark: (e: Element, t: ElementType) => void): Element {
   const { colors: co } = c;
   const wrap = doc.createElement('section');
   wrap.setAttribute('style', `margin: 16px 0 22px; padding: 0;`);
 
   ul.querySelectorAll(':scope > li').forEach(li => {
-    const row = doc.createElement('section');
-    row.setAttribute('style', `display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px; background: ${co.paperDeep}; border-radius: 10px; margin-bottom: 8px; border: 1px solid ${co.rule}; box-sizing: border-box;`);
+    const row = doc.createElement('table');
+    row.setAttribute('width', '100%');
+    row.setAttribute('cellpadding', '0');
+    row.setAttribute('cellspacing', '0');
+    row.setAttribute('style', `width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; background: ${co.paperDeep}; border: 1px solid ${co.rule}; border-radius: 10px; margin: 0 0 8px;`);
+
+    const tr = doc.createElement('tr');
+
+    const dotTd = doc.createElement('td');
+    // 列宽 30 = 14 缩进 + 16 徽章：固定宽度列不放水平 padding，
+    // 否则 border-box 环境（预览 Tailwind / 微信导出加固）会把内容区压窄导致徽章压到文字
+    dotTd.setAttribute('width', '30');
+    dotTd.setAttribute('valign', 'top');
+    dotTd.setAttribute('style', `width: 30px; padding: 13px 0 10px 0; vertical-align: top; border: 0;`);
 
     const dot = doc.createElement('span');
-    dot.setAttribute('style', `display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: ${co.ink}; color: #ffffff; font-size: 8px; flex-shrink: 0; margin-top: 3px;`);
+    dot.setAttribute('style', `display: inline-block; vertical-align: top; margin-left: 14px; width: 16px; height: 16px; line-height: 16px; text-align: center; border-radius: 50%; background: ${co.ink}; color: #ffffff; font-size: 8px;`);
     dot.appendChild(makeStyledLeaf(doc, '✦', `color: #ffffff !important; font-size: 8px !important;`));
-    row.appendChild(dot);
+    dotTd.appendChild(dot);
+
+    const txtTd = doc.createElement('td');
+    txtTd.setAttribute('valign', 'top');
+    txtTd.setAttribute('style', `padding: 10px 14px 10px 12px; vertical-align: top; border: 0; word-break: break-word; overflow-wrap: break-word;`);
 
     const txt = doc.createElement('p');
-    txt.setAttribute('style', `margin: 0; font-size: ${c.fonts.bodySize}; line-height: ${c.fonts.lineHeight}; color: ${co.text}; flex: 1;`);
+    txt.setAttribute('style', `margin: 0; font-size: ${c.fonts.bodySize}; line-height: ${c.fonts.lineHeight}; color: ${co.text};`);
     Array.from(li.childNodes).forEach(n => txt.appendChild(n.cloneNode(true)));
     mark(txt, 'list');
-    row.appendChild(txt);
+    txtTd.appendChild(txt);
 
+    tr.appendChild(dotTd);
+    tr.appendChild(txtTd);
+    row.appendChild(tr);
     wrap.appendChild(row);
   });
 
   return wrap;
 }
 
-/** 8. 结构化胶囊列表 OL */
+/** 8. 结构化胶囊列表 OL（表格行布局，兼容微信：微信会剥离 flex 导致换行错乱与内容溢出） */
 function buildOrderedList(doc: Document, c: LayoutConfig, ol: Element, mark: (e: Element, t: ElementType) => void): Element {
   const { colors: co } = c;
   const wrap = doc.createElement('section');
@@ -364,20 +383,38 @@ function buildOrderedList(doc: Document, c: LayoutConfig, ol: Element, mark: (e:
   let n = 0;
   ol.querySelectorAll(':scope > li').forEach(li => {
     n++;
-    const row = doc.createElement('section');
-    row.setAttribute('style', `display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px; background: ${co.paperDeep}; border-radius: 10px; margin-bottom: 8px; border: 1px solid ${co.rule}; box-sizing: border-box;`);
+    const row = doc.createElement('table');
+    row.setAttribute('width', '100%');
+    row.setAttribute('cellpadding', '0');
+    row.setAttribute('cellspacing', '0');
+    row.setAttribute('style', `width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; background: ${co.paperDeep}; border: 1px solid ${co.rule}; border-radius: 10px; margin: 0 0 8px;`);
+
+    const tr = doc.createElement('tr');
+
+    const numTd = doc.createElement('td');
+    // 列宽 34 = 14 缩进 + 20 徽章，理由同上：固定宽度列不带水平 padding
+    numTd.setAttribute('width', '34');
+    numTd.setAttribute('valign', 'top');
+    numTd.setAttribute('style', `width: 34px; padding: 11px 0 10px 0; vertical-align: top; border: 0;`);
 
     const numBadge = doc.createElement('span');
-    numBadge.setAttribute('style', `display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg, ${co.ink}, ${co.inkLight}); color: #ffffff; font-size: 11px; font-weight: 800; font-family: 'SF Mono', Consolas, monospace; flex-shrink: 0; margin-top: 1px; box-shadow: 0 2px 6px ${co.ink}33;`);
+    numBadge.setAttribute('style', `display: inline-block; vertical-align: top; margin-left: 14px; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 6px; background: linear-gradient(135deg, ${co.ink}, ${co.inkLight}); color: #ffffff; font-size: 11px; font-weight: 800; font-family: 'SF Mono', Consolas, monospace; box-shadow: 0 2px 6px ${co.ink}33;`);
     numBadge.appendChild(makeStyledLeaf(doc, String(n).padStart(2, '0'), `color: #ffffff !important; font-weight: 800 !important; font-size: 11px !important;`));
-    row.appendChild(numBadge);
+    numTd.appendChild(numBadge);
+
+    const txtTd = doc.createElement('td');
+    txtTd.setAttribute('valign', 'top');
+    txtTd.setAttribute('style', `padding: 10px 14px 10px 12px; vertical-align: top; border: 0; word-break: break-word; overflow-wrap: break-word;`);
 
     const txt = doc.createElement('p');
-    txt.setAttribute('style', `margin: 0; font-size: ${c.fonts.bodySize}; line-height: ${c.fonts.lineHeight}; color: ${co.text}; flex: 1;`);
-    Array.from(li.childNodes).forEach(n => txt.appendChild(n.cloneNode(true)));
+    txt.setAttribute('style', `margin: 0; font-size: ${c.fonts.bodySize}; line-height: ${c.fonts.lineHeight}; color: ${co.text};`);
+    Array.from(li.childNodes).forEach(n2 => txt.appendChild(n2.cloneNode(true)));
     mark(txt, 'list');
-    row.appendChild(txt);
+    txtTd.appendChild(txt);
 
+    tr.appendChild(numTd);
+    tr.appendChild(txtTd);
+    row.appendChild(tr);
     wrap.appendChild(row);
   });
 
