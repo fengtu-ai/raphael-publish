@@ -30,11 +30,13 @@ export default function PreviewPanel({
     const containerRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
 
-    // Sync internal contentRef to external previewRef
+    // Sync internal contentRef to external previewRef (contentRoot for scroll sync).
+    // NOTE: must re-run on device/content change, otherwise previewRef points
+    // to an unmounted div after PC <-> mobile switch and block-top resolving degrades.
     useEffect(() => {
         if (!previewRef || !contentRef.current) return;
         previewRef.current = contentRef.current;
-    }, [previewRef]);
+    }, [previewRef, previewDevice, renderedHtml]);
 
     useEffect(() => {
         if (!onImageClick) return;

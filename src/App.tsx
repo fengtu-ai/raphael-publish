@@ -10,6 +10,12 @@ import { DEFAULT_CODE_THEME_ID } from './lib/codeThemes';
 import { defaultContent } from './defaultContent';
 import { findImagePosition } from './lib/imageSelector';
 import { findElementPosition, getElementLocations, type ElementLocation } from './lib/markdownLocator';
+import {
+    buildDualScrollAnchorsFromDom,
+    isDualAnchorCacheValid,
+    mapScrollPosition,
+    type DualAnchorCache,
+} from './lib/scrollSync';
 import Header from './components/Header';
 import ThemeSelector from './components/ThemeSelector';
 import Toolbar from './components/Toolbar';
@@ -33,6 +39,10 @@ export default function App() {
     const previewInnerScrollRef = useRef<HTMLDivElement>(null);
     const scrollSyncLockRef = useRef<'editor' | 'preview' | null>(null);
     const scrollLockReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const anchorsCacheRef = useRef<DualAnchorCache | null>(null);
+    const anchorsDirtyRef = useRef(true);
+    const syncRafRef = useRef<number | null>(null);
+    const pendingSyncSourceRef = useRef<'editor' | 'preview' | null>(null);
     const markdownLocations = useMemo(() => getElementLocations(markdownInput), [markdownInput]);
 
     useEffect(() => {
@@ -63,25 +73,51 @@ export default function App() {
     useEffect(() => {
         if (!scrollSyncEnabled) {
             scrollSyncLockRef.current = null;
+            pendingSyncSourceRef.current = null;
             if (scrollLockReleaseTimeoutRef.current) {
                 clearTimeout(scrollLockReleaseTimeoutRef.current);
                 scrollLockReleaseTimeoutRef.current = null;
+            }
+            if (syncRafRef.current !== null) {
+                cancelAnimationFrame(syncRafRef.current);
+                syncRafRef.current = null;
             }
         }
     }, [scrollSyncEnabled]);
 
     useEffect(() => {
         scrollSyncLockRef.current = null;
+        anchorsCacheRef.current = null;
+        anchorsDirtyRef.current = true;
         if (scrollLockReleaseTimeoutRef.current) {
             clearTimeout(scrollLockReleaseTimeoutRef.current);
             scrollLockReleaseTimeoutRef.current = null;
         }
     }, [previewDevice]);
 
+    // 内容变化时只标记脏，不在渲染时直接量布局；下次滚动时重建一次并缓存
+    useEffect(() => {
+        anchorsDirtyRef.current = true;
+    }, [renderedHtml, markdownLocations, activeTheme, activeCodeTheme]);
+
+    // 预览区尺寸变化（窗口缩放/设备框）导致锚点失效
+    useEffect(() => {
+        if (typeof ResizeObserver === 'undefined') return;
+        const observer = new ResizeObserver(() => {
+            anchorsDirtyRef.current = true;
+        });
+        if (previewOuterScrollRef.current) observer.observe(previewOuterScrollRef.current);
+        if (previewInnerScrollRef.current) observer.observe(previewInnerScrollRef.current);
+        return () => observer.disconnect();
+    }, [previewDevice, renderedHtml]);
+
     useEffect(() => {
         return () => {
             if (scrollLockReleaseTimeoutRef.current) {
                 clearTimeout(scrollLockReleaseTimeoutRef.current);
+            }
+            if (syncRafRef.current !== null) {
+                cancelAnimationFrame(syncRafRef.current);
             }
         };
     }, []);
@@ -91,136 +127,134 @@ export default function App() {
         return previewInnerScrollRef.current;
     };
 
-    const interpolateScrollPosition = (
-        position: number,
-        sourceAnchors: number[],
-        targetAnchors: number[]
-    ) => {
-        if (sourceAnchors.length < 2 || sourceAnchors.length !== targetAnchors.length) return 0;
-
-        let upperIndex = sourceAnchors.findIndex((anchor) => anchor >= position);
-        if (upperIndex < 0) upperIndex = sourceAnchors.length - 1;
-        if (upperIndex === 0) return targetAnchors[0];
-
-        const lowerIndex = upperIndex - 1;
-        const sourceSpan = sourceAnchors[upperIndex] - sourceAnchors[lowerIndex];
-        if (sourceSpan <= 0) return targetAnchors[upperIndex];
-
-        const progress = (position - sourceAnchors[lowerIndex]) / sourceSpan;
-        return targetAnchors[lowerIndex]
-            + progress * (targetAnchors[upperIndex] - targetAnchors[lowerIndex]);
-    };
-
-    const getScrollAnchors = (
-        editor: MonacoEditor.IStandaloneCodeEditor,
-        previewElement: HTMLElement
-    ) => {
-        const model = editor.getModel();
-        const editorMax = Math.max(editor.getScrollHeight() - editor.getLayoutInfo().height, 0);
-        const previewMax = Math.max(previewElement.scrollHeight - previewElement.clientHeight, 0);
-        const previewRect = previewElement.getBoundingClientRect();
-        const previewNodes = Array.from(previewElement.querySelectorAll<HTMLElement>('[data-md-index]'));
-        const previewNodeByIndex = new Map<number, HTMLElement>();
-
-        previewNodes.forEach((node) => {
-            const index = Number(node.dataset.mdIndex);
-            if (Number.isFinite(index) && !previewNodeByIndex.has(index)) {
-                previewNodeByIndex.set(index, node);
-            }
-        });
-
-        const editorAnchors = [0];
-        const previewAnchors = [0];
-        let previousEditorAnchor = 0;
-        let previousPreviewAnchor = 0;
-
-        if (model) {
-            markdownLocations.forEach((location, index) => {
-                const previewNode = previewNodeByIndex.get(index);
-                if (!previewNode) return;
-
-                const position = model.getPositionAt(location.start);
-                const editorAnchor = Math.min(Math.max(editor.getTopForLineNumber(position.lineNumber), 0), editorMax);
-                const previewAnchor = Math.min(Math.max(
-                    previewNode.getBoundingClientRect().top - previewRect.top + previewElement.scrollTop,
-                    0
-                ), previewMax);
-
-                if (editorAnchor <= previousEditorAnchor || previewAnchor <= previousPreviewAnchor) return;
-                editorAnchors.push(editorAnchor);
-                previewAnchors.push(previewAnchor);
-                previousEditorAnchor = editorAnchor;
-                previousPreviewAnchor = previewAnchor;
-            });
-        }
-
-        if (editorAnchors[editorAnchors.length - 1] !== editorMax
-            || previewAnchors[previewAnchors.length - 1] !== previewMax) {
-            editorAnchors.push(editorMax);
-            previewAnchors.push(previewMax);
-        }
-
-        return { editorAnchors, previewAnchors };
-    };
-
-    const syncScrollPosition = (
+    const ensureScrollAnchors = (
         editor: MonacoEditor.IStandaloneCodeEditor,
         previewElement: HTMLElement,
-        sourcePanel: 'editor' | 'preview'
     ) => {
+        const editorScrollHeight = editor.getScrollHeight();
+        const previewScrollHeight = previewElement.scrollHeight;
+        const cached = anchorsCacheRef.current;
+
+        if (
+            !anchorsDirtyRef.current &&
+            cached &&
+            isDualAnchorCacheValid(cached, editorScrollHeight, previewScrollHeight)
+        ) {
+            return cached;
+        }
+
+        const anchors = buildDualScrollAnchorsFromDom(
+            editor,
+            previewElement,
+            previewRef.current,
+            markdownLocations,
+        );
+        anchorsCacheRef.current = {
+            ...anchors,
+            editorViewport: editor.getLayoutInfo().height,
+            previewViewport: previewElement.clientHeight,
+        };
+        anchorsDirtyRef.current = false;
+        return anchorsCacheRef.current;
+    };
+
+    const doSyncScroll = (sourcePanel: 'editor' | 'preview') => {
         if (!scrollSyncEnabled) return;
         if (scrollSyncLockRef.current && scrollSyncLockRef.current !== sourcePanel) return;
 
-        const { editorAnchors, previewAnchors } = getScrollAnchors(editor, previewElement);
+        const editor = editorRef.current;
+        const previewElement = getActivePreviewScrollElement();
+        if (!editor || !previewElement) return;
+
+        let anchors;
+        try {
+            anchors = ensureScrollAnchors(editor, previewElement);
+        } catch {
+            return;
+        }
+
+        // 视口高度用实时值（窗口缩放时即使锚点未重建也能保持焦点比例正确）
+        const editorViewport = editor.getLayoutInfo().height;
+        const previewViewport = previewElement.clientHeight;
+
         scrollSyncLockRef.current = sourcePanel;
 
         if (sourcePanel === 'editor') {
-            previewElement.scrollTop = interpolateScrollPosition(
-                editor.getScrollTop(),
-                editorAnchors,
-                previewAnchors
-            );
+            const next = mapScrollPosition({
+                sourceScroll: editor.getScrollTop(),
+                sourceMax: anchors.editorMax,
+                sourceViewport: editorViewport,
+                targetMax: anchors.previewMax,
+                targetViewport: previewViewport,
+                sourceTop: anchors.editorTop,
+                targetTop: anchors.previewTop,
+                sourceContent: anchors.editorContent,
+                targetContent: anchors.previewContent,
+            });
+            if (Number.isFinite(next)) {
+                // 避免无意义的赋值触发多余 scroll 事件
+                if (Math.abs(previewElement.scrollTop - next) > 0.5) {
+                    previewElement.scrollTop = next;
+                }
+            }
         } else {
-            editor.setScrollTop(interpolateScrollPosition(
-                previewElement.scrollTop,
-                previewAnchors,
-                editorAnchors
-            ));
+            const next = mapScrollPosition({
+                sourceScroll: previewElement.scrollTop,
+                sourceMax: anchors.previewMax,
+                sourceViewport: previewViewport,
+                targetMax: anchors.editorMax,
+                targetViewport: editorViewport,
+                sourceTop: anchors.previewTop,
+                targetTop: anchors.editorTop,
+                sourceContent: anchors.previewContent,
+                targetContent: anchors.editorContent,
+            });
+            if (Number.isFinite(next)) {
+                if (Math.abs(editor.getScrollTop() - next) > 0.5) {
+                    editor.setScrollTop(next);
+                }
+            }
         }
 
         if (scrollLockReleaseTimeoutRef.current) {
             clearTimeout(scrollLockReleaseTimeoutRef.current);
         }
 
+        // 滑动窗口锁：持续滚动时会不断续期，停下 120ms 后释放，
+        // 覆盖 Monaco 平滑滚动的动画尾巴，避免双向打架
         scrollLockReleaseTimeoutRef.current = setTimeout(() => {
             if (scrollSyncLockRef.current === sourcePanel) {
                 scrollSyncLockRef.current = null;
             }
             scrollLockReleaseTimeoutRef.current = null;
-        }, 50);
+        }, 120);
+    };
+
+    // rAF 节流：高频滚动事件合并为一帧一次，锚点只算一次
+    const requestSyncScroll = (sourcePanel: 'editor' | 'preview') => {
+        if (!scrollSyncEnabled) return;
+        pendingSyncSourceRef.current = sourcePanel;
+        if (syncRafRef.current !== null) return;
+        syncRafRef.current = requestAnimationFrame(() => {
+            syncRafRef.current = null;
+            const source = pendingSyncSourceRef.current;
+            pendingSyncSourceRef.current = null;
+            if (source) doSyncScroll(source);
+        });
     };
 
     const handleEditorScroll = () => {
-        const editor = editorRef.current;
-        const previewElement = getActivePreviewScrollElement();
-        if (!editor || !previewElement) return;
-        syncScrollPosition(editor, previewElement, 'editor');
+        requestSyncScroll('editor');
     };
 
     const handlePreviewOuterScroll = () => {
         if (previewDevice !== 'pc') return;
-        const previewElement = previewOuterScrollRef.current;
-        const editor = editorRef.current;
-        if (!previewElement || !editor) return;
-        syncScrollPosition(editor, previewElement, 'preview');
+        requestSyncScroll('preview');
     };
 
     const handlePreviewInnerScroll = () => {
         if (previewDevice === 'pc') return;
-        const previewElement = previewInnerScrollRef.current;
-        const editor = editorRef.current;
-        if (!previewElement || !editor) return;
-        syncScrollPosition(editor, previewElement, 'preview');
+        requestSyncScroll('preview');
     };
 
     const handleCopy = async () => {
